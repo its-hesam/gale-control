@@ -51,9 +51,21 @@ base64 /tmp/gale-pre-upgrade.tar.gz
  console.log('Preparing and validating firmware with owut; this can take several minutes.');
  console.log(await transport.exec('sh',`set -eu
 if ! command -v owut >/dev/null; then opkg update; opkg install owut; fi
-owut download --version-to ${target} --image /tmp/gale-firmware.bin
-owut verify --image /tmp/gale-firmware.bin
-sysupgrade -T /tmp/gale-firmware.bin
+umask 077
+log=$(mktemp /tmp/gale-upgrade-check.XXXXXX)
+trap 'rm -f "$log"' EXIT
+run_checked() {
+ if "$@" >"$log" 2>&1; then cat "$log"; else
+  status=$?
+  echo 'Firmware preparation stopped. No flash was started. Diagnostic output:' >&2
+  cat "$log" >&2
+  exit "$status"
+ fi
+}
+run_checked owut check --verbose --version-to ${target}
+run_checked owut download --version-to ${target} --image /tmp/gale-firmware.bin
+run_checked owut verify --image /tmp/gale-firmware.bin
+run_checked sysupgrade -T /tmp/gale-firmware.bin
 `,1800000));
  // Only the validated image is flashed. Never use -F, -n or --force.
  await transport.exec('sh',`set -eu
