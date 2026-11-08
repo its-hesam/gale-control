@@ -26,3 +26,5 @@ does not uninstall or disable PassWall, v2rayA or other applications. The instal
 does not flash firmware and does not enable VPN routing by itself.
 
 Application updates accept only stable versioned assets from its-hesam/gale-control. GitHub release asset SHA-256 and the internal file manifest are checked over HTTPS; independent publisher signatures are not verified. Wi-Fi direct routes and enabled Iran GeoIP exceptions intentionally bypass the VPN guard while classification is active. Wi-Fi band routing does not isolate clients on the shared LAN.
+
+The desktop installer supports masked interactive SSH password entry and reuses one authenticated SSH session. Passwords are not passed in argv/environment or persisted to disk. Host keys are checked against OpenSSH known_hosts (including hashed entries); changed/revoked keys are refused. A new host requires explicit fingerprint approval. No temporary authorized key is installed on the router. Automated key/agent mode remains available with --batch.

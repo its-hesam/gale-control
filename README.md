@@ -81,6 +81,11 @@ npm ci
 npm run install:router -- --host root@192.168.10.1 --install-deps
 ```
 
+Password login is offered automatically if key authentication fails. Add
+`--password` to force the masked prompt, or `--batch` for unattended key-only runs.
+The password stays in process memory and one SSH session is reused throughout
+installation. Host-key verification is preserved. See the [authentication guide](docs/public/installation.md#password-login-and-automation).
+
 Then open **http://192.168.10.1/gale/** and use your existing OpenWrt root account.
 
 🔍 Prefer a read-only compatibility check first?

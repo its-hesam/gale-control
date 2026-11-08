@@ -11,7 +11,7 @@
 | RAM | 512 MB class recommended; balancing needs at least 224 MiB available |
 | Storage | At least 256 MiB free overlay for managed core downloads |
 | Build machine | Node 22.12+, npm, Git, OpenSSH, tar; Windows/Linux/macOS |
-| SSH | Working noninteractive root authentication through a key/agent |
+| SSH | Root login using an SSH key/agent or an interactively entered password |
 
 This is not a universal installer for every OpenWrt router. Core downloads are
 currently ARMv7-specific and network policies contain the documented LAN subnet.
@@ -21,9 +21,10 @@ never renumbers your LAN. Other hardware is unverified even if it passes preflig
 ## Quick guided install
 
 1. Keep local recovery access and download a normal OpenWrt configuration backup
-   through LuCI. Configure an SSH key through LuCI/your SSH agent and verify that
-   `ssh -o BatchMode=yes root@192.168.10.1 true` succeeds. The installer does not
-   read or store your router password.
+   through LuCI. Verify the router SSH fingerprint and root login. An SSH key/agent
+   is optional: if key login fails, the installer offers a masked password prompt
+   in your terminal. No password is written to files, environment variables or
+   command-line arguments.
 2. Run on your computer, **not on the router**:
 
    ```sh
@@ -106,6 +107,40 @@ On POSIX shells use `GALE_SSH_TARGET=root@192.168.10.1 node scripts/publish-rele
 An optional `GALE_ROUTER_URL` sets the management origin; otherwise it is derived
 from the SSH hostname. HTTPS needs a certificate trusted by the build machine.
 
+## Password login and automation
+
+Password fallback is automatic. To explicitly use password authentication:
+
+```sh
+npm run install:router -- --host root@192.168.10.1 --install-deps --password
+```
+
+Type the root password at the terminal prompt and press Enter. Characters are
+masked. Incorrect passwords can be retried up to three times. The same authenticated
+SSH connection carries preflight commands, file uploads and publication locks;
+passwords are not repeatedly requested for every installation step. Ctrl+C cancels
+password entry and restores terminal mode. Empty passwords remain possible when
+intentionally allowed by the router.
+
+Run directly in PowerShell, Terminal or another interactive TTY. Piping a password
+or passing it after `--password` is not supported. `--password` is a switch, not a
+password-valued argument. Keyboard-interactive/2FA and password-only ProxyJump setups
+are not implemented; key/agent connections keep using the native OpenSSH client.
+The password transport uses the computer's `ssh2` dependency, not a router package.
+
+For CI and unattended key-based installation, use `--batch` to disable prompts:
+
+```sh
+npm run check:router -- --host root@192.168.10.1 --batch
+```
+
+Saved plain or hashed OpenSSH host keys are checked. A previously unknown host
+requires explicit fingerprint approval; that approval is kept only for this run.
+Changed or revoked host keys are rejected before requesting/sending the password.
+Do not remove known_hosts entries merely to silence a warning. First verify the
+router identity through a trusted local/physical console; a reset/replacement can
+legitimately generate a different key.
+
 ## Backup and return to ordinary routing
 
 Use **Settings → Full recovery backup**, and save the recovery key separately.
@@ -128,8 +163,10 @@ firmware imaging and multi-day soak are not claimed as completed acceptance.
 
 ## Troubleshooting
 
-- **SSH authentication failed:** test SSH with `BatchMode=yes`; load the key in
-  your agent. No password is accepted as an installer command-line argument.
+- **SSH authentication failed:** retry with `--password` in an interactive terminal,
+  or load the correct key in your agent. `--batch` deliberately disables password prompts.
+- **SSH host key changed/revoked:** verify the actual device identity before updating
+  known_hosts. This is separate from a wrong password; Gale does not bypass it.
 - **Preflight rejected LAN/architecture:** this release is not compatible with
   that layout. The installer will not change your network to force compatibility.
 - **Missing lyaml/socket:** use `--install-deps`, or install the named packages

@@ -1,7 +1,7 @@
 {
   "name": "gale-control",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
@@ -12,11 +12,12 @@
     "check:publication": "node scripts/check-publication.mjs"
   },
   "dependencies": {
-    "preact": "^10.27.0"
+    "preact": "^10.27.0",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
-    "vite": "^7.0.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
   },
   "description": "A lightweight OpenWrt Smart VPN Dashboard with verified connection workflows",
   "license": "MIT"
