@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {dependencyScript} from '../scripts/install-dependencies.mjs';
 const shell=process.platform==='win32'?'C:/Program Files/Git/bin/bash.exe':'/bin/sh';
-function exercise(fail=false){
+function exercise(fail=false,brokenTimeout=false){
  const setup=`set -eu
 fixture_dir=$(mktemp -d)
 export fixture_dir
@@ -23,6 +23,7 @@ MOCK
 cat >"$fixture_dir/timeout" <<'MOCK'
 #!/bin/sh
 echo "version $*" >>"$fixture_dir/log"
+${brokenTimeout?'exit 127':''}
 if [ "$2" = /usr/bin/sing-box ] && [ ! -f "$fixture_dir/first" ]; then touch "$fixture_dir/first"; exit 1; fi
 MOCK
 chmod 700 "$fixture_dir/apk" "$fixture_dir/uclient-fetch" "$fixture_dir/timeout"
@@ -46,3 +47,5 @@ test('apk downloads use scoped IPv4 wrapper; interrupted core is repaired and wr
 test('failed package refresh stops before add and still cleans temporary wrapper',()=>{
  const r=exercise(true);assert.equal(r.status,7,r.stderr+'\n'+r.stdout);assert.doesNotMatch(r.stdout,/apk add |apk fix |WRAPPER_LEAK/);
 });
+
+test('a broken timeout utility never causes a healthy core to be reinstalled',()=>{const r=exercise(false,true);assert.equal(r.status,1,r.stderr+r.stdout);assert.match(r.stderr,/timeout utility failed its self-test/);assert.doesNotMatch(r.stdout,/apk fix /);assert.match(r.stdout,/apk add .*coreutils-timeout/);});

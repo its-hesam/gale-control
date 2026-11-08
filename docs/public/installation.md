@@ -214,3 +214,7 @@ Dependency installation uses IPv4 for the wget subprocesses started by OpenWrt's
 The dependency stage streams live output and has a 15-minute limit. After apk add, the installer runs both core version commands. If a prior interrupted extraction left a core executable unusable, it attempts a targeted apk fix and requires the version check to pass before continuing. This does not automatically activate VPN routing. After an SSH timeout, inspect running apk processes before retrying.
 
 Implementation references: [apk wget backend](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/src/io_url_wget.c), [PATH-based subprocess launch](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/src/process.c).
+
+### Timeout utility dependency (0.3.8+)
+
+The installer explicitly installs coreutils-timeout and verifies the timeout runner before checking core binaries. A missing or broken timeout runner stops with a utility error and cannot trigger core reinstallation. This fixes the false repair triggered on routers whose BusyBox build does not include timeout.

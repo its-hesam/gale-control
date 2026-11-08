@@ -1,5 +1,5 @@
 import {runStage} from './command-progress.mjs';
-export const dependencyPackages='ucode ucode-mod-fs ucode-mod-digest ucode-mod-socket ucode-mod-ubus ucode-mod-uci rpcd rpcd-mod-ucode uhttpd uhttpd-mod-ubus curl ca-bundle lua lyaml ip-full nftables-json kmod-nft-tproxy kmod-nft-socket unzip xray-core sing-box';
+export const dependencyPackages='ucode ucode-mod-fs ucode-mod-digest ucode-mod-socket ucode-mod-ubus ucode-mod-uci rpcd rpcd-mod-ucode uhttpd uhttpd-mod-ubus curl ca-bundle coreutils-timeout lua lyaml ip-full nftables-json kmod-nft-tproxy kmod-nft-socket unzip xray-core sing-box';
 export const dependencyScript=`set -eu
 command -v apk >/dev/null || { echo 'This installer expects apk on OpenWrt25.12.' >&2; exit 1; }
 GALE_FETCH_BIN=$(command -v uclient-fetch)
@@ -16,6 +16,8 @@ export PATH="$gale_fetch_dir:$PATH"
 echo '[Dependencies] Using IPv4 for apk downloads in this process only; HTTPS and package signatures remain enabled.'
 apk update
 apk add ${dependencyPackages}
+command -v timeout >/dev/null || { echo 'Missing timeout utility after dependency installation; core repair was not attempted.' >&2; exit 1; }
+timeout 5 sh -c 'exit 0' || { echo 'The timeout utility failed its self-test; core repair was not attempted.' >&2; exit 1; }
 # Repair a core left incomplete by an earlier interrupted package extraction.
 if ! timeout 15 /usr/bin/sing-box version; then
  echo '[Dependencies] Repairing incomplete sing-box package.'
