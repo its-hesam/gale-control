@@ -26,7 +26,7 @@ try{
   const hash=(await ssh('sha256sum '+base+'/SHA256SUMS')).split(/\s+/)[0];await ssh('ucode /usr/share/gale-release-transaction.uc initial',JSON.stringify({id,manifest_hash:hash}));
  }
  // Stable anchors are installed once; subsequent releases only swap current.
- let bind='set -eu\n';for(const b of p.bindings){const dst=b.destination,target='/usr/share/gale/current/'+b.relative;bind+='if [ -d '+dst+' ] && [ ! -L '+dst+' ]; then mv '+dst+' /root/gale-before-release-'+p.id+'-'+b.relative.replaceAll('/','-')+'; fi\nln -s '+target+' '+dst+'.release-new\nmv -Tf '+dst+'.release-new '+dst+'\n';}await ssh('sh',bind);
+ let bind='set -eu\n';for(const b of p.bindings){assert(/^\/[a-zA-Z0-9._/-]+$/.test(b.destination)&&!b.destination.split('/').includes('..'),'BAD_BINDING_DESTINATION');bind+='mkdir -p '+b.destination.slice(0,b.destination.lastIndexOf('/'))+'\n';}for(const b of p.bindings){const dst=b.destination,target='/usr/share/gale/current/'+b.relative;bind+='if [ -d '+dst+' ] && [ ! -L '+dst+' ]; then mv '+dst+' /root/gale-before-release-'+p.id+'-'+b.relative.replaceAll('/','-')+'; fi\nln -s '+target+' '+dst+'.release-new\nmv -Tf '+dst+'.release-new '+dst+'\n';}await ssh('sh',bind);
  await ssh('ucode /usr/share/gale-release-transaction.uc prepare',JSON.stringify({id:p.id,manifest_hash:p.manifest_hash}));prepared=true;
  await ssh('/etc/init.d/rpcd reload');
  const required=p.files.filter(f=>f.path.startsWith('plugins/')).map(f=>f.path.slice(8));
