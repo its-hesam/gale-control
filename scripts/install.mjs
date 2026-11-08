@@ -1,3 +1,4 @@
+import {ensureFirmware} from './firmware-upgrade.mjs';
 import {connectSSH} from './ssh-transport.mjs';
 import {publishRelease} from './publish-release.mjs';
 import {pathToFileURL} from 'node:url';import {resolve} from 'node:path';
@@ -5,13 +6,15 @@ import {mkdirSync} from 'node:fs';
 import assert from 'node:assert/strict';
 export async function install(args=process.argv.slice(2),{connector=connectSSH}={}){
 
-if(args.includes('--help')){console.log('Gale guided installer\nnode scripts/install.mjs --host root@192.168.10.1 [--check] [--install-deps] [--password | --batch]\nSupports the documented ARMv7/OpenWrt25.12/br-lan192.168.10.0/24 setup.\n--check is read-only. Installing does not activate VPN routing.\nPassword fallback is automatic; --password forces a hidden password prompt. --batch disables prompts.');return;}
+if(args.includes('--help')){console.log('Gale guided installer\nnode scripts/install.mjs --host root@192.168.10.1 [--check] [--install-deps] [--password | --batch]\nSupports the documented ARMv7/OpenWrt25.12/br-lan192.168.10.0/24 setup.\n--check is read-only. Installing does not activate VPN routing.\nOn stable 24.10.x, supported devices can upgrade to 25.12.x only after explicit Y approval; firmware upgrade reboots the router.\nPassword fallback is automatic; --password forces a hidden password prompt. --batch disables prompts.');return;}
 for(let i=0;i<args.length;i++){if(args[i]==='--host'){i++;continue;}assert(['--check','--install-deps','--password','--batch'].includes(args[i]),'Unknown option. Use --help for supported flags.');}
 const host=args.includes('--host')?args[args.indexOf('--host')+1]:process.env.GALE_SSH_TARGET||'root@192.168.10.1';assert(/^root@[A-Za-z0-9][A-Za-z0-9.-]*$/.test(host||''),'Use --host root@hostname or root@IPv4');
 const origin=process.env.GALE_ROUTER_URL||'http://'+host.slice(5);const url=new URL(origin);assert(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/','Invalid GALE_ROUTER_URL');
 if(args.includes('--password')&&args.includes('--batch'))throw Error('Choose either --password or --batch.');
-const transport=await connector(host,{auth:args.includes('--password')?'password':args.includes('--batch')?'batch':'auto'}),ssh=(command,input)=>transport.exec(command,input,300000);
+const reconnect=()=>connector(host,{auth:args.includes('--password')?'password':args.includes('--batch')?'batch':'auto'});
+let transport=await reconnect();const ssh=(command,input)=>transport.exec(command,input,300000);
 try{
+transport=await ensureFirmware({transport,reconnect,check:args.includes('--check'),batch:args.includes('--batch')});
 const platform=`set -eu
 test "$(id -u)" = 0
 command -v ucode >/dev/null

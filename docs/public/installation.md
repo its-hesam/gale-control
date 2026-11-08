@@ -180,3 +180,17 @@ firmware imaging and multi-day soak are not claimed as completed acceptance.
 ## Day-to-day controls
 
 Use [Smart Routing](smart-routing.md) for independent Wi-Fi band routes and Iran GeoIP bypass. Use [Settings](application-updates.md) for GitHub application updates and router status lights. Updating Gale is separate from firmware and VPN core updates.
+
+## Optional firmware migration (installer 0.3.3+)
+
+The installer reports the detected OpenWrt release before checking Gale dependencies. Stable official OpenWrt 24.10.x can be offered an attended migration to the latest stable 25.12.x published by the official ASU service. It checks the existing ARMv7 architecture, target, LAN, management services and free overlay first. This does not broaden Gale's supported hardware or network layout.
+
+Run the normal installation command in an interactive terminal. Review the device and target release, then type exactly **Y** to consent. Enter or any other answer cancels. Neither `--check` nor `--batch` can approve firmware changes.
+
+The installer saves a configuration archive to `.private/openwrt-backup-<timestamp>.tar.gz` on the computer before installing the official `owut` package if needed. Keep this archive private: it contains router credentials. It uses `owut download` and `owut verify`, followed by `sysupgrade -T`. Only a validated device-specific image is flashed. Package incompatibilities or validation errors stop the process; forced flashing and configuration reset are never used.
+
+Use Ethernet and keep router power connected. Firmware flashing interrupts Wi-Fi and Internet and has **no guaranteed automatic rollback**; know the device's recovery procedure. The installer waits up to ten minutes, reconnects (the SSH password may be requested again), verifies the returned board, target and supported release, then repeats the installation preflight before proceeding. Changed SSH host keys are never accepted automatically. If reconnection fails, inspect the router locally and rerun installation after recovery; do not blindly repeat the flash.
+
+Snapshots, third-party forks, releases before 24.10 and newer unsupported branches require the device-specific manual upgrade procedure. Automatic downgrade is not provided. The migration flow has automated failure-path tests; a real hardware flash has not been performed as part of validating this installer change.
+
+References: [official Attended Sysupgrade](https://sysupgrade.openwrt.org/), [owut source and documentation](https://github.com/efahl/owut).
