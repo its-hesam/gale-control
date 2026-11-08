@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+destination=$1
+shift
+case "$1" in /usr/bin/curl|/bin/gzip|/bin/tar|/bin/chmod|/bin/sh|/usr/bin/ucode|/etc/init.d/rpcd) ;; *) exit 1 ;; esac
+# Bound decompression and command output even for malformed upstream archives.
+ulimit -f 32768
+exec "$@" >"$destination" 2>/dev/null

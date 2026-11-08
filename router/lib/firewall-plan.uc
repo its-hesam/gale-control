@@ -1,4 +1,8 @@
+import {readfile} from 'fs';
+import {connect} from 'ubus';
+import {smart_enabled,smart_firewall,wifi_interfaces} from '/usr/share/gale/lib/smart-policy.uc';
 export function firewall_preview(draft,udp,ipv6){
+ if(smart_enabled(draft)){let expanded={...draft,wifi_interfaces:wifi_interfaces(connect())};if(draft.iran_direct){let geo=json(readfile('/etc/gale/iran-geoip.json')||'null');if(!geo?.cidrs)die('IRAN_RULES_DOWNLOAD_REQUIRED');expanded.iran_cidrs=geo.cidrs;}return smart_firewall(expanded,udp,ipv6);}
  let direct=[],vpn=[],blocked=[];
  for(let rule in draft.rules||[]){let ip=rule.ip||rule.observed_ip;if(!match(ip||'',/^192\.168\.10\.[0-9]{1,3}$/))die('BAD_POLICY_IP');if(rule.action=='direct')push(direct,ip);else if(rule.action=='vpn')push(vpn,ip);else if(rule.action=='block')push(blocked,ip);else die('BAD_POLICY_ACTION');}
  let all=draft.default_action=='vpn',set=all?'192.168.10.0/24':join(', ',vpn);

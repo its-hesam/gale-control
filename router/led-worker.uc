@@ -1,0 +1,1 @@
+import {connect} from 'ubus';import {led_config,led_state} from '/usr/share/gale/lib/leds.uc';let bus=connect();while(led_config().enabled){try{led_state(bus.call('gale-connection','status',{}));}catch(e){}system(['/bin/sleep','2'],3000);}

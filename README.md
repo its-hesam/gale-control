@@ -24,6 +24,16 @@
 > `br-lan` and LAN `192.168.10.1/24`. Other layouts/architectures are not yet
 > supported by the guided installer. It never changes your LAN to force a match.
 
+## 🆕 Smart network controls
+
+- **Modern Smart Routing:** independent 2.4 / 5 GHz VPN, direct or blocked routes.
+- **Iran GeoIP:** update and toggle verified Chocolate4U Iran destination IP rules.
+- **In-panel app updates:** fixed GitHub releases, SHA-256 validation and rollback.
+- **Hardware indicators:** connected, connecting and unhealthy states on router LEDs.
+
+Read the [routing guide](docs/public/smart-routing.md) and
+[updates / LEDs guide](docs/public/application-updates.md) for priority and safety limits.
+
 ## ✨ Why Gale?
 
 - **📱 An app-style interface:** an English, LTR dashboard with dark/light themes,
@@ -167,7 +177,7 @@ acceptance results, not a multi-day soak or a guarantee for other hardware.
 - IPv6 provider capability must be verified; a WireGuard IPv6 address alone proves nothing.
 - Physical power-cut acceptance, firmware/eMMC restoration and multi-day load tests
   have not been completed. Application recovery is not a bootable firmware image.
-- Core archive SHA-256 is checked; independent publisher signatures are not verified.
+- Core and application archive SHA-256 are checked; independent publisher signatures are not verified.
 - Only one transparent routing manager should be active at a time. Gale does not
   uninstall competing applications or silently take over their rules.
 
@@ -201,4 +211,4 @@ configurations. Read [SECURITY.md](SECURITY.md) before sharing diagnostic files.
 Gale's original source is released under the [MIT License](LICENSE). OpenWrt, ucode,
 Preact, Xray, sing-box, Lua/lyaml and other external dependencies retain their own
 licenses. Gale does not bundle or relicense their executables. Thanks to the
-OpenWrt and proxy-core communities that make this project possible.
+Chocolate4U rules, OpenWrt and proxy-core communities that make this project possible.

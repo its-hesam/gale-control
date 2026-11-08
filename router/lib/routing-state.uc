@@ -1,3 +1,4 @@
+import {smart_enabled,wifi_interfaces} from '/usr/share/gale/lib/smart-policy.uc';
 import {readfile,popen} from 'fs';
 import {network_guard_rules} from '/usr/share/gale/lib/network-guard.uc';
 function command(text){let p=popen(text,'r');if(!p)return {ok:false,text:''};let output=p.read('all')||'',code=p.close();return {ok:code==0,text:output};}
@@ -12,6 +13,8 @@ export function routing_state(bus){
  if(!table.ok||index(table.text,'tproxy ip to 127.0.0.1:17893')<0||index(table.text,'redirect to :5354')<0)push(issues,'ROUTING_TABLE_INCOMPLETE');
  if(!match(rules.text,/31001:[^\n]*fwmark 0x6a1e0001[^\n]*lookup 31001/))push(issues,'POLICY_RULE_MISSING');
  if(!match(route.text,/local (default|0\.0\.0\.0\/0) dev lo/))push(issues,'LOCAL_ROUTE_MISSING');
+ let active_policy;try{active_policy=json(readfile('/etc/gale/routing-active.json')||readfile('/etc/gale/routing-test/draft.json')||'{}');}catch(e){}
+ if(active_policy&&smart_enabled(active_policy))for(let ap in wifi_interfaces(bus)){if(active_policy.wifi?.[ap.band]&&active_policy.wifi[ap.band]!='inherit'&&index(table.text,'band_'+ap.device)<0)push(issues,'WIFI_CLASSIFIER_MISSING');}
  if(settings?.ipv6_tunnel){let r6=command('ip -6 rule show 2>/dev/null'),t6=command('ip -6 route show table 31001 2>/dev/null');if(index(table.text,'tproxy ip6 to [::1]:17893')<0||index(r6.text,'lookup 31001')<0||!match(t6.text,/local (default|::\/0) dev lo/))push(issues,'IPV6_POLICY_INCOMPLETE');}
  let bridges=bus?.call('service','list',{name:'gale-route-bridges'})?.['gale-route-bridges']?.instances;
  if(!bridges?.dns?.running)push(issues,'DNS_BRIDGE_NOT_RUNNING');if(!bridges?.tcp?.running)push(issues,'TRANSPARENT_BRIDGE_NOT_RUNNING');

@@ -1,0 +1,12 @@
+#!/usr/bin/ucode
+import {readfile,writefile,mkdir,chmod,popen,open} from 'fs';import {led_inventory,led_config,led_save} from '/usr/share/gale/lib/leds.uc';
+if(ARGV[0]=='list'){print({status:{},configure_leds:{enabled:'Boolean',connected:'String',connecting:'String',disconnected:'String'},check_update:{},install_update:{version:'String'}});exit(0);}if(ARGV[0]!='call')exit(1);
+try{
+ let root='/tmp/gale-app-update';mkdir(root);chmod(root,0o700);let job=json(readfile(root+'/job.json')||'null');if(job&&!(job.state in ['ready','installed','failed','up_to_date'])&&time()-job.updated_at>360)job={state:'interrupted'};
+ if(ARGV[1]=='status'){print({release:json(readfile('/usr/share/gale/current/release-info.json')||'{"version":"0.1.0"}'),repository:'its-hesam/gale-control',update:job,leds:{config:led_config(),inventory:led_inventory()}});exit(0);}
+ let req=json(readfile('/dev/stdin')||'{}');
+ if(ARGV[1]=='configure_leds'){led_save(req);let child=popen('/etc/init.d/gale-leds enable && /etc/init.d/gale-leds restart','r');if(!child||child.close()!=0)die('LED_SERVICE_FAILED');print({saved:true});exit(0);}
+ if(!(ARGV[1] in ['check_update','install_update']))die('UNKNOWN_METHOD');let lock=open(root+'/queue.lock','a',0o600);if(!lock||!lock.lock('xn'))die('APP_UPDATE_BUSY');if(job&&!(job.state in ['ready','installed','failed','up_to_date','interrupted']))die('APP_UPDATE_BUSY');
+ if(ARGV[1]=='install_update'&&(!match(req.version||'',/^0\.[0-9]+\.[0-9]+$/)||job?.available?.version!=req.version))die('CHECK_UPDATE_FIRST');
+ writefile(root+'/job.json',sprintf('%J',{state:'queued',action:ARGV[1],version:req.version,updated_at:time()}));let child=popen('/usr/share/gale/app-update-launch','r');if(!child||child.close()!=0)die('APP_UPDATE_LAUNCH_FAILED');print({state:'queued'});
+}catch(e){print({error:match(e.message||'',/^[A-Z0-9_]+$/)?e.message:'SYSTEM_FAILED'});}

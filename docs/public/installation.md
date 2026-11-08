@@ -139,3 +139,7 @@ firmware imaging and multi-day soak are not claimed as completed acceptance.
 - **LuCI login expired:** rpcd publication can invalidate sessions; sign in again.
 - **VPN healthy but no client Internet:** inspect LAN/UDP/guard status and competing
   routing managers. Do not assume a running process proves working interception.
+
+## Day-to-day controls
+
+Use [Smart Routing](smart-routing.md) for independent Wi-Fi band routes and Iran GeoIP bypass. Use [Settings](application-updates.md) for GitHub application updates and router status lights. Updating Gale is separate from firmware and VPN core updates.

@@ -6,7 +6,8 @@ import {routing_state} from '/usr/share/gale/lib/routing-state.uc';
 import {core_path} from '/usr/share/gale/lib/cores.uc';
 import {validate_device_rules,dns_bridge_config,transparent_bridge_config} from '/usr/share/gale/lib/network-plan.uc';
 import {firewall_preview} from '/usr/share/gale/lib/firewall-plan.uc';
-if(ARGV[0]=='list'){print({status:{},apply_draft:{confirmed:'Boolean',revision:'String'},preview:{},save_draft:{rules:'String',default_action:'String'},preflight:{}});exit(0);}
+import {validate_wifi_rules,wifi_interfaces} from '/usr/share/gale/lib/smart-policy.uc';
+if(ARGV[0]=='list'){print({status:{},apply_draft:{confirmed:'Boolean',revision:'String'},preview:{},save_draft:{rules:'String',default_action:'String',wifi:'String',iran_direct:'Boolean'},preflight:{}});exit(0);}
 if(ARGV[0]!='call')exit(1);
 function devices(){let items=[];for(let line in split(readfile('/tmp/dhcp.leases')||'','\n')){let f=split(trim(line),/\s+/);if(length(f)<4||!match(f[1],/^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/)||!match(f[2],/^192\.168\.10\.[0-9]{1,3}$/))continue;if(+f[0]!=0&&+f[0]<time())continue;push(items,{mac:lc(f[1]),ip:f[2],name:substr(f[3],0,100),expires_at:+f[0]});}return items;}
 try{
@@ -16,7 +17,7 @@ try{
   let bus=connect(),lan=bus.call('network.interface.lan','status',{}),routing=routing_state(bus),active_raw=readfile('/etc/gale/routing-active.json')||readfile('/etc/gale/routing-test/draft.json'),active=active_raw?json(active_raw):null,operation=null;
   try{operation=json(readfile('/tmp/gale-policy-operation/result.json')||'null');}catch(e){}
   if(operation?.state in ['queued','applying']&&time()-operation.updated_at>60)operation={state:'interrupted',error:'CHECK_NETWORK_STATUS'};
-  print({schema_version:1,devices:devices(),draft:draft,draft_revision:sha256(raw||''),active_draft:active,pending_changes:!!active_raw&&active_raw!=raw,operation:operation,lan:{device:lan?.l3_device,addresses:lan?.['ipv4-address']},applied:routing.active,scope:routing.scope,approval_required:true,limitations:['IPv4 device policies; IPv6 tunneling requires all-LAN VPN without direct/block exceptions','Management destinations remain local']});exit(0);
+  print({schema_version:1,ipv6_tunnel:!!json(readfile('/etc/gale/network-options.json')||'{}').ipv6_tunnel,devices:devices(),wifi_interfaces:wifi_interfaces(bus),draft:draft,draft_revision:sha256(raw||''),active_draft:active,pending_changes:!!active_raw&&active_raw!=raw,operation:operation,lan:{device:lan?.l3_device,addresses:lan?.['ipv4-address']},applied:routing.active,scope:routing.scope,approval_required:true,limitations:['IPv4 device policies; IPv6 tunneling requires all-LAN VPN without direct/block exceptions','Management destinations remain local']});exit(0);
  }
  if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');
  if(ARGV[1]=='apply_draft'){
@@ -30,7 +31,10 @@ try{
   let req=json(readfile('/dev/stdin')||'{}'),rules;try{rules=json(req.rules);}catch(e){die('BAD_RULES_JSON');}
   let normalized=validate_device_rules(rules,devices()),guard=open('/etc/gale/routing-draft.lock','a',0o600);if(!guard||!guard.lock('xn'))die('POLICY_BUSY');
   let default_action=req.default_action||draft.default_action||'direct';if(!(default_action in ['vpn','direct']))die('BAD_DEFAULT_ACTION');
-  draft={default_action:default_action,lan_cidr:'192.168.10.0/24',rules:normalized,updated_at:time(),applied:false};if(!writefile('/etc/gale/routing-draft.new',sprintf('%J',draft)))die('POLICY_WRITE_FAILED');chmod('/etc/gale/routing-draft.new',0o600);if(!rename('/etc/gale/routing-draft.new','/etc/gale/routing-draft.json'))die('POLICY_COMMIT_FAILED');print({schema_version:1,draft:draft,applied:false});exit(0);
+  let wifi;try{wifi=validate_wifi_rules(json(req.wifi||'{}'));}catch(e){die('BAD_WIFI_POLICY');}
+  for(let band in keys(wifi)){if(wifi[band]!='inherit'&&!length(filter(wifi_interfaces(connect()),a=>a.band==band&&a.up)))die('WIFI_BAND_NOT_AVAILABLE');}
+  if(req.iran_direct===true&&!stat('/etc/gale/iran-geoip.json'))die('IRAN_RULES_DOWNLOAD_REQUIRED');
+  draft={wifi:wifi,iran_direct:req.iran_direct===true,default_action:default_action,lan_cidr:'192.168.10.0/24',rules:normalized,updated_at:time(),applied:false};if(!writefile('/etc/gale/routing-draft.new',sprintf('%J',draft)))die('POLICY_WRITE_FAILED');chmod('/etc/gale/routing-draft.new',0o600);if(!rename('/etc/gale/routing-draft.new','/etc/gale/routing-draft.json'))die('POLICY_COMMIT_FAILED');print({schema_version:1,draft:draft,applied:false});exit(0);
  }
  if(ARGV[1]=='preflight'){
   let dir=mkdtemp('/tmp/gale-native-XXXXXX');if(!dir)die('PREFLIGHT_STORAGE_FAILED');let results=[];

@@ -1,0 +1,29 @@
+import {readfile,writefile,rename,mkdir,chmod,stat,open,symlink,unlink} from 'fs';import {sha256} from 'digest';import {connect} from 'ubus';import {validate_app_tar,validate_app_bindings} from '/usr/share/gale/lib/app-package.uc';
+let root='/tmp/gale-app-update',worker=open(root+'/worker.lock','a',0o600);if(!worker||!worker.lock('xn'))exit(0);let job=json(readfile(root+'/job.json')||'{}'),prepared=false,release_lock=null;
+function state(s){job.state=s;job.updated_at=time();writefile(root+'/job.new',sprintf('%J',job));rename(root+'/job.new',root+'/job.json');}
+function run(args,out,timeout){if(system(['/usr/share/gale/app-capture',out,...args],timeout)!=0)die('APP_COMMAND_FAILED');}
+function get(url,file,max,timeout){run(['/usr/bin/curl','--disable','--fail','--silent','--proxy','','--location','--proto','=https','--proto-redir','=https','--max-time',''+timeout,'--max-filesize',''+max,'--user-agent','Gale-App-Updates',url],file,(timeout+2)*1000);}
+function transaction(op,req){writefile(root+'/request',sprintf('%J',req));run(['/bin/sh','-c','ucode /usr/share/gale-release-transaction.uc '+op+' </tmp/gale-app-update/request'],root+'/result',35000);}
+try{
+ if(!match(readfile('/etc/openwrt_release')||'',/DISTRIB_ARCH='arm_cortex-a7_neon-vfpv4'/))die('APP_PLATFORM_UNSUPPORTED');
+ state('checking');get('https://api.github.com/repos/its-hesam/gale-control/releases/latest',root+'/metadata',1048576,25);let meta=json(readfile(root+'/metadata')||'{}'),version=substr(meta.tag_name||'',1);if(!match(meta.tag_name||'',/^v0\.[0-9]+\.[0-9]+$/)||meta.draft||meta.prerelease)die('APP_RELEASE_INVALID');
+ let current=json(readfile('/usr/share/gale/current/release-info.json')||'{"version":"0.1.0"}'),a=split(version,'.'),b=split(current.version||'0.0.0','.');let newer=false;for(let i=0;i<3;i++){if(+a[i]!=+b[i]){newer=+a[i]>+b[i];break;}}
+ let asset=filter(meta.assets||[],a=>a.name=='gale-control.tar.gz')[0];if(!asset||!match(asset.digest||'',/^sha256:[a-f0-9]{64}$/)||asset.size>8388608||asset.browser_download_url!='https://github.com/its-hesam/gale-control/releases/download/v'+version+'/gale-control.tar.gz')die('APP_OFFICIAL_DIGEST_REQUIRED');
+ job.available={version:version,url:meta.html_url,bytes:asset.size,sha256:substr(asset.digest,7)};job.current_version=current.version;
+ if(job.action=='check_update'){state(newer?'ready':'up_to_date');exit(0);}if(job.version!=version||!newer)die('APP_VERSION_CHANGED_CHECK_AGAIN');
+ release_lock=open('/etc/gale/release.lock','a',0o600);if(!release_lock||!release_lock.lock('xn'))die('RELEASE_BUSY');let core_lock=open('/etc/gale/core-upgrade.lock','a',0o600),connection_lock=open('/tmp/gale-connection/control.lock','a',0o600);if(!core_lock||!core_lock.lock('xn')||!connection_lock||!connection_lock.lock('xn')||stat('/etc/gale/recovery/pending.json')||stat('/etc/gale/core-upgrade.pending'))die('SYSTEM_OPERATION_BUSY');
+ if(system(['/usr/share/gale/app-space'],5000)!=0)die('APP_STORAGE_BUDGET');
+ state('downloading');get(asset.browser_download_url,root+'/archive',8388608,120);if(stat(root+'/archive')?.size!=asset.size||sha256(readfile(root+'/archive'))!=substr(asset.digest,7))die('APP_ARCHIVE_DIGEST_MISMATCH');
+ state('verifying');run(['/bin/gzip','-dc',root+'/archive'],root+'/archive.tar',15000);validate_app_tar(readfile(root+'/archive.tar'));let id='app-'+replace(version,/\./g,'-')+'-'+time(),base='/usr/share/gale/releases/'+id;mkdir(base);chmod(base,0o700);
+ run(['/bin/tar','-xf',root+'/archive.tar','-C',base],root+'/result',15000);let info=json(readfile(base+'/release-info.json')||'null');if(info?.version!=version||info?.updater_schema!=1||!match(info?.id||'',/^r[0-9]{17}$/))die('APP_PACKAGE_VERSION_MISMATCH');
+ // Packages embed their immutable build directory. Use it as the final path.
+ let final='/usr/share/gale/releases/'+info.id;if(stat(final)||!rename(base,final))die('APP_PACKAGE_ALREADY_PRESENT');base=final;id=info.id;
+ let manifest=readfile(base+'/SHA256SUMS');if(!manifest||length(manifest)>131072)die('APP_MANIFEST_INVALID');for(let line in split(trim(manifest),'\n'))if(!match(line,/^[a-f0-9]{64}  [A-Za-z0-9_.\/-]+$/)||index(split(split(line,'  ')[1],'/'),'..')>=0||substr(split(line,'  ')[1],0,1)=='/')die('APP_MANIFEST_PATH');
+ run(['/bin/sh','-c','cd '+base+' && sha256sum -c SHA256SUMS >/dev/null'],root+'/result',30000);let bindings=json(readfile(base+'/bindings.json'));validate_app_bindings(bindings,base);
+ for(let dir in ['helpers','plugins','init'])run(['/bin/chmod','-R','755',base+'/'+dir],root+'/result',5000);
+ for(let binding in bindings){let dst=binding.destination;if(stat(dst)?.type=='directory'&&!(dst in ['/www/gale','/usr/share/gale/lib','/usr/share/gale/selftests']))die('APP_EXISTING_DIRECTORY');let temp=dst+'.app-new';unlink(temp);if(!symlink('/usr/share/gale/current/'+binding.relative,temp)||!rename(temp,dst))die('APP_BINDING_FAILED');}
+ for(let binding in bindings)if(index(binding.relative,'plugins/')==0)run(['/usr/bin/ucode',base+'/'+binding.relative,'list'],root+'/result',5000);
+ state('activating');transaction('prepare',{id:id,manifest_hash:sha256(manifest)});prepared=true;run(['/etc/init.d/rpcd','reload'],root+'/result',10000);system(['/bin/sleep','2'],3000);
+ let bus=connect(),status=bus.call('gale-status','status',{}),connection=bus.call('gale-connection','status',{});if(status?.schema_version!=1||connection?.active&&!connection.running)die('APP_HEALTH_FAILED');transaction('commit',{id:id});prepared=false;state('installed');
+}catch(e){if(prepared){system(['/etc/init.d/gale-release-recovery','start'],35000);system(['/etc/init.d/rpcd','reload'],10000);}job.error=match(e.message||'',/^[A-Z0-9_]+$/)?e.message:'APP_UPDATE_FAILED';state('failed');}
+for(let f in ['metadata','archive','archive.tar','request','result'])unlink(root+'/'+f);

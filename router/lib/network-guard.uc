@@ -1,4 +1,6 @@
+import {smart_enabled,smart_guard} from '/usr/share/gale/lib/smart-policy.uc';
 export function network_guard_rules(draft){
+ if(draft&&smart_enabled(draft))return smart_guard();
  draft=draft||{default_action:'vpn',rules:[]};let all=draft.default_action=='vpn',vpn=[],direct=[],blocked=[];
  for(let r in draft.rules||[]){let ip=r.ip||r.observed_ip;if(!match(ip||'',/^192\.168\.10\.([1-9][0-9]{0,2})$/)||+split(ip,'.')[3]<=1||+split(ip,'.')[3]>=255)die('BAD_POLICY_IP');if(r.action=='vpn')push(vpn,ip);else if(r.action=='direct')push(direct,ip);else if(r.action=='block')push(blocked,ip);else die('BAD_POLICY_ACTION');}
  let local4='{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 }';

@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+df -Pk /usr/share/gale | awk 'NR==2 {exit !($4 >= 65536)}'
+df -Pk /tmp | awk 'NR==2 {exit !($4 >= 32768)}'

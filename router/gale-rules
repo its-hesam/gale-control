@@ -1,0 +1,8 @@
+#!/usr/bin/ucode
+import {readfile,writefile,mkdir,stat,chmod,popen,open} from 'fs';
+if(ARGV[0]=='list'){print({status:{},update:{}});exit(0);}if(ARGV[0]!='call')exit(1);
+try{let root='/tmp/gale-rules';mkdir(root);chmod(root,0o700);let job=json(readfile(root+'/job.json')||'null'),meta=json(readfile('/etc/gale/iran-geoip.json')||'null');
+ if(ARGV[1]=='status'){if(job?.state in ['queued','downloading','verifying']&&time()-job.updated_at>180)job={state:'interrupted'};print({source:'Chocolate4U/Iran-v2ray-rules',category:'geoip:ir',metadata:meta?{commit:meta.commit,sha256:meta.sha256,updated_at:meta.updated_at,ipv4:length(meta.cidrs.v4),ipv6:length(meta.cidrs.v6)}:null,job:job});exit(0);}
+ if(ARGV[1]!='update')die('UNKNOWN_METHOD');let lock=open(root+'/queue.lock','a',0o600);if(!lock||!lock.lock('xn'))die('RULE_UPDATE_BUSY');if(job?.state in ['queued','downloading','verifying']&&time()-job.updated_at<180)die('RULE_UPDATE_BUSY');
+ writefile(root+'/job.json',sprintf('%J',{state:'queued',updated_at:time()}));let child=popen('/usr/share/gale/rules-update-launch','r');if(!child||child.close()!=0)die('RULE_UPDATE_LAUNCH_FAILED');print({state:'queued'});
+}catch(e){print({error:match(e.message||'',/^[A-Z0-9_]+$/)?e.message:'RULES_FAILED'});}

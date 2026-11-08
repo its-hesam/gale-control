@@ -1,0 +1,74 @@
+#!/bin/sh
+# Real packet tests in disposable namespaces. Never touches the router's LAN.
+set -eu
+dir=$(mktemp -d /tmp/gale-smart-XXXXXX)
+http=''
+cleanup() {
+ test -z "$http" || kill "$http" 2>/dev/null || true
+ for n in gw two five server; do ip netns del "gale-smart-$n" 2>/dev/null || true; done
+ rm -f "$dir/index.html" "$dir/rules.nft" "$dir/response"
+ rmdir "$dir"
+}
+for n in gw two five server; do
+ if ip netns list | grep -q "^gale-smart-$n\b"; then exit 1; fi
+done
+trap cleanup EXIT HUP INT TERM
+for n in gw two five server; do ip netns add "gale-smart-$n"; ip -n "gale-smart-$n" link set lo up; done
+ip -n gale-smart-gw link add br-lan type bridge
+ip -n gale-smart-gw link set br-lan up
+for n in two five; do
+ ip link add "gs-$n" type veth peer name "gs-$n-gw"
+ ip link set "gs-$n" netns "gale-smart-$n"
+ ip link set "gs-$n-gw" netns gale-smart-gw
+ ip -n gale-smart-gw link set "gs-$n-gw" master br-lan
+ ip -n gale-smart-gw link set "gs-$n-gw" up
+ ip -n "gale-smart-$n" link set "gs-$n" up
+done
+ip link add gs-s type veth peer name gs-s-gw
+ip link set gs-s netns gale-smart-server
+ip link set gs-s-gw netns gale-smart-gw
+ip -n gale-smart-gw link set gs-s-gw up
+ip -n gale-smart-server link set gs-s up
+ip -n gale-smart-gw addr add 192.168.10.1/24 dev br-lan
+ip -n gale-smart-gw addr add 2001:db8:1::1/64 nodad dev br-lan
+ip -n gale-smart-gw addr add 198.18.0.1/24 dev gs-s-gw
+ip -n gale-smart-gw addr add 2001:db8:2::1/64 nodad dev gs-s-gw
+ip -n gale-smart-server addr add 198.18.0.2/24 dev gs-s
+ip -n gale-smart-server addr add 2001:db8:2::2/64 nodad dev gs-s
+ip -n gale-smart-server route add default via 198.18.0.1
+ip -n gale-smart-server -6 route add default via 2001:db8:2::1
+host=20
+for n in two five; do
+ ip -n "gale-smart-$n" addr add "192.168.10.$host/24" dev "gs-$n"
+ ip -n "gale-smart-$n" addr add "2001:db8:1::$host/64" dev "gs-$n"
+ ip -n "gale-smart-$n" route add default via 192.168.10.1
+ ip -n "gale-smart-$n" -6 route add default via 2001:db8:1::1
+ host=30
+done
+ip netns exec gale-smart-gw sysctl -q -w net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1
+ip -n gale-smart-gw route add local 0.0.0.0/0 dev lo table 31001
+ip -n gale-smart-gw rule add priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001
+ip -n gale-smart-gw -6 route add local ::/0 dev lo table 31001
+ip -n gale-smart-gw -6 rule add priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001
+printf 'GALE_SMART_ISOLATED\n' >"$dir/index.html"
+chmod 755 "$dir"; chmod 644 "$dir/index.html"
+ip netns exec gale-smart-server /usr/sbin/uhttpd -f -p 198.18.0.2:18080 -p '[2001:db8:2::2]:18080' -h "$dir" >/dev/null 2>&1 &
+http=$!
+sleep 2
+request() { ip netns exec "gale-smart-$1" curl --disable --silent --proxy '' --noproxy '*' --connect-timeout 1 --max-time 2 "http://$2:18080/index.html"; }
+generate() {
+ /usr/bin/ucode -e 'import {smart_firewall} from "/usr/share/gale/lib/smart-policy.uc";let p={default_action:"vpn",rules:[],wifi:{"2g":"vpn","5g":"direct"},wifi_interfaces:[{band:"2g",device:"gs-two-gw"},{band:"5g",device:"gs-five-gw"}]};if(ARGV[0]=="geo"){p.iran_direct=true;p.iran_cidrs={v4:["198.18.0.0/24"],v6:["2001:db8:2::/64"]};}if(ARGV[0]=="block")p.wifi["5g"]="block";printf("%s",smart_firewall(p,true,true).nft);' "$1" >"$dir/rules.nft"
+ ip netns exec gale-smart-gw nft -f "$dir/rules.nft"
+}
+generate split
+for dest in 198.18.0.2 '[2001:db8:2::2]'; do
+ request five "$dest" >"$dir/response"; grep -qx GALE_SMART_ISOLATED "$dir/response"
+ if request two "$dest" >"$dir/response"; then exit 1; fi
+done
+ip netns exec gale-smart-gw nft delete table inet gale_preview
+generate geo
+for dest in 198.18.0.2 '[2001:db8:2::2]'; do request two "$dest" >"$dir/response"; grep -qx GALE_SMART_ISOLATED "$dir/response"; done
+ip netns exec gale-smart-gw nft delete table inet gale_preview
+generate block
+for dest in 198.18.0.2 '[2001:db8:2::2]'; do if request five "$dest" >"$dir/response"; then exit 1; fi; done
+printf '{"passed":8,"real_bridge_ingress_marks":true,"IPv4_IPv6_split":true,"GeoIP_bypass":true,"block":true,"physical_LAN_changed":false}\n'
