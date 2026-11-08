@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+root=/etc/gale/ipv6-before
+test -f "$root/armed" || exit 0
+if [ -f "$root/committed" ] && [ "${1:-}" != --explicit ]; then exit 0; fi
+for name in dns.json tcp.json rules.nft; do cp "$root/$name" "/etc/gale/routing-test/$name"; done
+{ printf 'delete table inet gale_preview\n'; cat "$root/rules.nft"; } >"$root/restore.nft"
+if nft list table inet gale_preview >/dev/null 2>&1; then nft -f "$root/restore.nft"; fi
+ip -6 rule del priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001 >/dev/null 2>&1 || true
+ip -6 route del local ::/0 dev lo table 31001 >/dev/null 2>&1 || true
+if [ -f /etc/gale/network-options.json ]; then cp "$root/network-options.json" /etc/gale/network-options.json; fi
+if [ -s "$root/ra-default" ]; then
+ read -r value <"$root/ra-default"
+ case "$value" in 0|1|2) uci set "dhcp.lan.ra_default=$value" ;; *) exit 1 ;; esac
+else uci -q delete dhcp.lan.ra_default || true; fi
+uci commit dhcp
+/etc/init.d/odhcpd reload
+/etc/init.d/gale-route-bridges restart
+rm -f "$root/armed" "$root/committed"

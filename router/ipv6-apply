@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+test "${1:-}" = --owner-approved-ipv6-trial
+test -f /etc/gale/routing-test/armed
+test ! -f /etc/gale/ipv6-before/armed
+ucode /usr/share/gale/ipv6-prepare.uc
+umask 077
+root=/etc/gale/ipv6-before
+mkdir -p "$root"
+for name in dns.json tcp.json rules.nft; do cp "/etc/gale/routing-test/$name" "$root/$name"; done
+cp /etc/gale/network-options.json "$root/network-options.json"
+uci -q get dhcp.lan.ra_default >"$root/ra-default" || true
+test -z "$(ip -6 route show table 31001 2>/dev/null || true)"
+if ip -6 rule show | grep -q '^31001:'; then exit 1; fi
+rm -f "$root/committed"
+touch "$root/armed"
+# Independent timeout survives this SSH process. Commit only after real LAN tests.
+nohup /usr/share/gale/ipv6-watchdog </dev/null >/dev/null 2>&1 &
+trap '/usr/share/gale/ipv6-restore --explicit' EXIT HUP INT TERM
+ip -6 route add local ::/0 dev lo table 31001
+ip -6 rule add priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001
+for name in dns.json tcp.json rules.nft; do cp "/etc/gale/ipv6-stage/$name" "/etc/gale/routing-test/$name"; done
+/etc/init.d/gale-route-bridges restart
+nft -f /etc/gale/ipv6-stage/batch.nft
+ucode -e 'import {readfile,writefile,rename,chmod} from "fs";let o=json(readfile("/etc/gale/network-options.json"));o.ipv6_original_ra_default=trim(readfile("/etc/gale/ipv6-before/ra-default")||"")||null;o.ipv6_tunnel=true;o.public_ipv6="tunneled";writefile("/etc/gale/network-options.new",sprintf("%J",o));chmod("/etc/gale/network-options.new",0o600);if(!rename("/etc/gale/network-options.new","/etc/gale/network-options.json"))exit(1);'
+uci set dhcp.lan.ra_default=2
+uci commit dhcp
+/etc/init.d/odhcpd reload
+trap - EXIT HUP INT TERM
+echo IPV6_TRIAL_ACTIVE_90_SECONDS

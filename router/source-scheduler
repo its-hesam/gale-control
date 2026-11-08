@@ -1,0 +1,11 @@
+#!/bin/sh
+# Refresh schedules are opt-in per source, with a minimum interval of one hour.
+set -eu
+ids=$(ubus -t 5 call gale-sources due | jsonfilter -e '@.ids[*]') || exit 0
+for id in $ids; do
+ case "$id" in *[!a-f0-9]*) continue ;; esac
+ [ "${#id}" -eq 64 ] || continue
+ ubus -t 25 call gale-sources refresh "{\"id\":\"$id\"}" >/dev/null 2>&1 || true
+done
+
+ubus -t 8 call gale-discovery run_due >/dev/null 2>&1 || true

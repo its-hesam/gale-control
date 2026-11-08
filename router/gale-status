@@ -1,0 +1,90 @@
+#!/usr/bin/ucode
+import { connect } from 'ubus';
+import { readfile, stat, popen, lsdir } from 'fs';
+import {event_log} from '/usr/share/gale/lib/events.uc';
+
+if (ARGV[0] == 'list') {
+ print('{"status":{},"core_inventory":{},"core_selftest":{},"events":{}}');
+ exit(0);
+}
+if (ARGV[0] != 'call' || !(ARGV[1] in ['status', 'core_inventory', 'core_selftest','events'])) exit(1);
+if(ARGV[1]=='events'){print({schema_version:1,events:event_log(),retention:'RAM_last_128',observed_at:time()});exit(0);}
+// No supplied argument is evaluated, used as a path, or forwarded to a shell.
+let bus = connect();
+if (!bus) exit(1);
+if (ARGV[1] == 'core_selftest') {
+ let checks = [
+  {core:'xray',case:'direct-baseline',command:'/usr/bin/timeout 3 /usr/bin/xray run -test -c /usr/share/gale/selftests/xray-direct.json >/dev/null 2>&1'},
+  {core:'sing-box',case:'direct-baseline',command:'/usr/bin/timeout 3 /usr/bin/sing-box check -c /usr/share/gale/selftests/sing-box-direct.json >/dev/null 2>&1'},
+  {core:'xray',case:'vless-xhttp-reality-schema',command:'/usr/bin/timeout 3 /usr/bin/xray run -test -c /usr/share/gale/selftests/xray-xhttp-reality.json >/dev/null 2>&1'}
+ ];
+ let results = [];
+ for (let check in checks) {
+  let process = popen(check.command, 'r');
+  let code = process ? process.close() : -1;
+  push(results,{core:check.core,case:check.case,passed:code == 0,exit_code:code,scope:'native_config_validation_only',handshake_tested:false});
+ }
+ print({schema_version:1,observed_at:time(),results:results});
+ exit(0);
+}
+if (ARGV[1] == 'core_inventory') {
+ let definitions = [
+  {id:'xray',path:'/usr/bin/xray',command:'/usr/bin/timeout 3 /usr/bin/xray version 2>/dev/null',protocols:['VLESS','VMess','Trojan','Shadowsocks','SOCKS','HTTP'],special:['XHTTP','REALITY']},
+  {id:'sing-box',path:'/usr/bin/sing-box',command:'/usr/bin/timeout 3 /usr/bin/sing-box version 2>/dev/null',protocols:['VLESS','VMess','Trojan','Shadowsocks','Hysteria2','TUIC','AnyTLS'],special:[]},
+  {id:'openvpn',path:'/usr/sbin/openvpn',command:'/usr/bin/timeout 3 /usr/sbin/openvpn --version 2>/dev/null',protocols:['OpenVPN'],special:[]},
+  {id:'wireguard',path:'/usr/bin/wg',command:'/usr/bin/timeout 3 /usr/bin/wg --version 2>/dev/null',protocols:['WireGuard'],special:[]},
+  {id:'hysteria',path:'/usr/bin/hysteria',command:'/usr/bin/timeout 3 /usr/bin/hysteria version 2>/dev/null',protocols:['Hysteria2'],special:[]}
+ ];
+ let processes = {};
+ for (let pid in lsdir('/proc') || []) {
+  if (!match(pid, /^[0-9]+$/)) continue;
+  let comm = trim(readfile('/proc/'+pid+'/comm') || '');
+  if (comm) processes[comm] = (processes[comm] || 0) + 1;
+ }
+ let cores = [];
+ for (let core in definitions) {
+  let metadata = stat(core.path);
+  let version = null;
+  let version_ok = false;
+  if (metadata) {
+   // Commands are an internal constant allowlist, never user-supplied shell text.
+   let child = popen(core.command, 'r');
+   if (child) {
+    let output = child.read(4096);
+    let result = child.close();
+    let hysteria_version = core.id == 'hysteria' ? match(output || '', /Version:\s*([^\n]+)/) : null;
+    version = hysteria_version ? trim(hysteria_version[1]) : split(trim(output || ''), '\n')[0];
+    version_ok = result == 0 && length(version) > 0;
+   }
+  }
+  push(cores,{id:core.id,path:core.path,installed:!!metadata,bytes:metadata?.size,version:version,version_ok:version_ok,running_processes:processes[core.id] || 0,protocol_candidates:core.protocols,special_candidates:core.special,verification:'not_tested',official_integrity:'not_verified'});
+ }
+ let arch = match(readfile('/etc/openwrt_release') || '', /DISTRIB_ARCH='([^']+)'/);
+ print({schema_version:1,observed_at:time(),architecture:arch?.[1],cores:cores,legacy_boot_disabled:!!stat('/root/gale-migration-20261107/complete')});
+ exit(0);
+}
+let board = bus.call('system', 'board', {});
+let info = bus.call('system', 'info', {});
+let wan = bus.call('network.interface.wan', 'status', {});
+let services = [];
+for (let name in ['openvpn', 'passwall2', 'v2raya', 'xray', 'sing-box', 'dnsmasq', 'uhttpd', 'dropbear']) {
+ let response = bus.call('service', 'list', { name: name });
+ let entry = response?.[name];
+ let instances = [];
+ for (let id, instance in entry?.instances || {})
+  push(instances, {name:id, running:!!instance.running, exit_code:instance.exit_code});
+ push(services, {name:name, registered:!!entry, instances:instances});
+}
+let interfaces = [];
+for (let dev in ['wan','lan','br-lan','phy0-ap0','phy1-sta0']) {
+ let root = '/sys/class/net/' + dev + '/';
+ let rx = readfile(root+'statistics/rx_bytes');
+ if (rx == null) continue;
+ push(interfaces,{name:dev,rx_bytes:+rx,tx_bytes:+readfile(root+'statistics/tx_bytes'),state:trim(readfile(root+'operstate') || 'unknown')});
+}
+let stat = split(trim(split(readfile('/proc/stat'),'\n')[0]), /\s+/);
+let ticks = [];
+for (let i = 1; i <= 8; i++) push(ticks,+stat[i]);
+let trial_text=readfile('/etc/gale/routing-test/armed'),network_trial=false;
+if(trial_text)try{network_trial=!json(trial_text).simulation;}catch(e){network_trial=true;}
+print({schema_version:1,network_trial:network_trial,observed_at:time(),board:{model:board?.model,release:board?.release?.description,kernel:board?.kernel,target:board?.release?.target},system:{uptime:info?.uptime,memory:info?.memory,root:info?.root,load:info?.load,cpu_ticks:ticks},wan:{up:wan?.up,device:wan?.l3_device,proto:wan?.proto,addresses:wan?.['ipv4-address'],dns:wan?.['dns-server']},interfaces:interfaces,services:services,limitations:['System telemetry alone does not verify VPN connectivity. Use current connection/probe results. Public IP has not been measured.']});

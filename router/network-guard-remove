@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+if [ -f /etc/gale/ipv6-before/armed ]; then /usr/share/gale/ipv6-restore --explicit; fi
+forward=/usr/share/nftables.d/chain-pre/forward/40-gale-guard.nft
+input=/usr/share/nftables.d/chain-pre/input/40-gale-guard.nft
+# Refuse to remove files which are not ours.
+for path in "$forward" "$input"; do
+ if [ -e "$path" ]; then grep -q '^# Gale managed' "$path" || exit 1; fi
+done
+/etc/init.d/gale-network disable >/dev/null 2>&1 || true
+/etc/init.d/gale-network stop >/dev/null 2>&1 || true
+if [ ! -e "$forward" ] && [ ! -e "$input" ]; then rm -f /etc/gale/network-options.json; exit 0; fi
+mkdir -p /etc/gale/network-stage
+for role in forward input; do
+ path=$forward; [ "$role" = forward ] || path=$input
+ if [ -f "$path" ]; then mv "$path" "/etc/gale/network-stage/$role.disabled"; fi
+done
+if ! /sbin/fw4 check || ! /sbin/fw4 reload; then
+ for role in forward input; do
+  path=$forward; [ "$role" = forward ] || path=$input
+  if [ -f "/etc/gale/network-stage/$role.disabled" ]; then mv "/etc/gale/network-stage/$role.disabled" "$path"; fi
+ done
+ /sbin/fw4 reload >/dev/null 2>&1 || true
+ /etc/init.d/gale-network enable >/dev/null 2>&1 || true
+ /etc/init.d/gale-network start >/dev/null 2>&1 || true
+ exit 1
+fi
+rm -f /etc/gale/network-options.json

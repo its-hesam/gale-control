@@ -1,0 +1,46 @@
+#!/usr/bin/ucode
+import { open, stat, mkdir, chmod, readfile, writefile, unlink, popen } from 'fs';
+import { load_store, lock_store } from '/usr/share/gale/lib/store.uc';
+if(ARGV[0]=='list'){print({status:{},start:{kind:'String',limit:'Integer',id:'String'},cancel:{}});exit(0);}
+if(ARGV[0]!='call')exit(1);
+let dir='/tmp/gale-batch';
+if(!stat(dir))mkdir(dir);chmod(dir,0o700);
+function status(job){return {schema_version:1,job:job ? {kind:job.kind,state:job.state,total:length(job.ids),processed:job.processed,passed:job.passed,failed:job.failed,started_at:job.started_at,updated_at:job.updated_at,finished_at:job.finished_at,current_id:job.current_id,errors:job.errors}:null};}
+try{
+ let control=open(dir+'/control.lock','a',0o600);if(!control || !control.lock('xn'))die('JOB_BUSY');
+ let text=readfile(dir+'/job.json'),job=text ? json(text):null;
+ if(job?.state in ['running','queued'] && time()-job.updated_at>120){job.state='interrupted';job.finished_at=time();writefile(dir+'/job.json',sprintf('%J',job));}
+ if(ARGV[1]=='status'){print(status(job));exit(0);}
+ if(ARGV[1]=='cancel'){writefile(dir+'/cancel','1');print({schema_version:1,cancel_requested:true});exit(0);}
+ if(stat('/etc/gale/recovery/pending.json'))die('SYSTEM_RECOVERY_RUNNING');
+ if(ARGV[1]!='start')die('UNKNOWN_METHOD');
+ if(job?.state in ['running','queued'])die('JOB_RUNNING');
+ let request=json(readfile('/dev/stdin') || '{}');
+ if(!(request.kind in ['validate','benchmark','performance']))die('BAD_JOB_KIND');
+ let limit=request.limit==null?(request.kind=='performance'?1:20):request.limit;
+ if(type(limit)!='int' || limit<1 || limit>50)die('BAD_JOB_LIMIT');
+ if(request.kind=='performance'&&limit>5)die('PERFORMANCE_LIMIT_FIVE');
+ let lock=lock_store(),store=load_store(),ids=[];
+ if(request.id!=null){
+  if(type(request.id)!='string' || !exists(store.profiles,request.id))die('BAD_PROFILE');
+  if(request.kind in ['benchmark','performance'] && store.profiles[request.id].native_status!='passed')die('NATIVE_VALIDATION_REQUIRED');
+  ids=[request.id];
+ }
+ else if(request.kind=='validate')ids=map(slice(sort(values(store.profiles),(a,b)=>(a.native_checked_at||0)-(b.native_checked_at||0)),0,limit),p=>p.id);
+ else{
+  let groups={};
+  for(let p in values(store.profiles))if(p.native_status=='passed'&&p.model.protocol!='openvpn'&&!p.source_retired){
+   let key=p.model.protocol+'/'+p.model.transport+'/'+p.model.security;
+   if(!groups[key])groups[key]=[];push(groups[key],p.id);
+  }
+  let added=true;
+  while(added && length(ids)<limit){added=false;for(let key in keys(groups)){if(length(groups[key]) && length(ids)<limit){push(ids,shift(groups[key]));added=true;}}}
+ }
+ if(!length(ids))die('NO_ELIGIBLE_PROFILES');
+ job={kind:request.kind,state:'queued',ids:ids,processed:0,passed:0,failed:0,errors:{},started_at:time(),updated_at:time()};
+ unlink(dir+'/cancel');writefile(dir+'/job.json',sprintf('%J',job));
+ lock.close();
+ control.close();
+ let child=popen('/usr/share/gale/batch-launch','r');if(!child || child.close()!=0)die('JOB_LAUNCH_FAILED');
+ print(status(job));
+}catch(e){print({schema_version:1,error:match(e.message || '',/^[A-Z0-9_]+$/) ? e.message : 'JOB_OPERATION_FAILED'});}

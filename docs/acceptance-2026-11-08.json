@@ -1,0 +1,87 @@
+{
+  "at": "2026-11-07T21:39:40.717Z",
+  "scope": "offline_native_and_structural",
+  "openvpn_provider_tested": false,
+  "results": [
+    {
+      "name": "profiles.uc",
+      "passed": true,
+      "output": "{ \"passed\": 12, \"scope\": \"parser_and_redaction\" }"
+    },
+    {
+      "name": "wireguard.uc",
+      "passed": true,
+      "output": "{ \"native_wireguard_schema\": true, \"system_interface\": false, \"handshake_tested\": false }"
+    },
+    {
+      "name": "native-protocols.uc",
+      "passed": true,
+      "output": "{ \"scope\": \"offline_native_schema_only\", \"results\": [ { \"protocol\": \"vless\", \"transport\": \"xhttp\", \"security\": \"reality\", \"native_schema\": true, \"handshake_tested\": false }, { \"protocol\": \"vmess\", \"transport\": \"ws\", \"security\": \"tls\", \"native_schema\": true, \"handshake_tested\": false }, { \"protocol\": \"trojan\", \"transport\": \"tcp\", \"security\": \"tls\", \"native_schema\": true, \"handshake_tested\": false }, { \"protocol\": \"ss\", \"transport\": \"tcp\", \"security\": \"none\", \"native_schema\": true, \"handshake_tested\": false } ] }"
+    },
+    {
+      "name": "new-protocols.uc",
+      "passed": true,
+      "output": "{ \"scope\": \"native_schema_only\", \"results\": [ { \"protocol\": \"hysteria2\", \"core\": \"sing-box\", \"native_schema\": true, \"handshake_tested\": false }, { \"protocol\": \"tuic\", \"core\": \"sing-box\", \"native_schema\": true, \"handshake_tested\": false }, { \"protocol\": \"anytls\", \"core\": \"sing-box\", \"native_schema\": true, \"handshake_tested\": false } ] }"
+    },
+    {
+      "name": "network-plan.uc",
+      "passed": true,
+      "output": "{ \"passed\": 9, \"scope\": \"device_policy_drafts_only\" }"
+    },
+    {
+      "name": "firewall-plan.uc",
+      "passed": true,
+      "output": "{ \"passed\": 5, \"scope\": \"unapplied_firewall_draft_only\" }"
+    },
+    {
+      "name": "network-guard.uc",
+      "passed": true,
+      "output": "{ \"passed\": 3, \"kernel_dry_run\": true, \"applied\": false }"
+    },
+    {
+      "name": "balancing.uc",
+      "passed": true,
+      "output": "{ \"native_balancer_schema\": true, \"strategy\": \"roundRobin\", \"members\": 2, \"handshake_tested\": false }"
+    },
+    {
+      "name": "selection.uc",
+      "passed": true,
+      "output": "{ \"passed\": 18, \"scope\": \"connection_policy_decisions\" }"
+    },
+    {
+      "name": "discovery.uc",
+      "passed": true,
+      "output": "{ \"passed\": 7, \"scope\": \"JSON_source_envelopes_dedup_quality_and_trust\" }"
+    },
+    {
+      "name": "addresses.uc",
+      "passed": true,
+      "output": "{ \"passed\": 15, \"network_changed\": false }"
+    },
+    {
+      "name": "import-formats.uc",
+      "passed": true,
+      "output": "{ \"passed\": 7, \"yaml_parser\": \"lyaml\", \"native_schemas_checked\": true, \"network_changed\": false, \"openvpn_provider_tested\": false }"
+    },
+    {
+      "name": "backup-discovery.uc",
+      "passed": true,
+      "output": "{ \"passed\": 7, \"network_changed\": false, \"scope\": \"backup_validation_and_discovery_extraction\" }"
+    },
+    {
+      "name": "dedup.uc",
+      "passed": true,
+      "output": "{ \"passed\": 3, \"scope\": \"cross_format_equivalence_and_TLS_separation\", \"network_changed\": false }"
+    },
+    {
+      "name": "source-security.uc",
+      "passed": true,
+      "output": "{ \"passed\": 27, \"scope\": \"URL_and_IP_SSRF_guards\" }"
+    },
+    {
+      "name": "user-agent.uc",
+      "passed": true,
+      "output": "{ \"passed\": 13, \"scope\": \"user_agent_validation\" }"
+    }
+  ]
+}

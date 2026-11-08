@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+if [ "${1:-}" = --dry-run ]; then
+ echo 'Would stop only gale-route-bridges, delete only inet gale_preview, exact mark rule 31001 and its local route, then disarm the watchdog.'
+ exit 0
+fi
+test -f /etc/gale/routing-test/armed || exit 0
+if [ "${1:-}" != --simulation ] && [ "${1:-}" != --preserve-ipv6 ] && [ -f /etc/gale/ipv6-before/armed ]; then /usr/share/gale/ipv6-restore --explicit; fi
+if [ "${1:-}" = --simulation ]; then
+ ucode -e 'import {readfile} from "fs"; if(json(readfile("/etc/gale/routing-test/armed")||"{}").simulation!==true)exit(1);'
+else
+ip -6 rule del priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001 >/dev/null 2>&1 || true
+ip -6 route del local ::/0 dev lo table 31001 >/dev/null 2>&1 || true
+/etc/init.d/gale-route-bridges stop >/dev/null 2>&1 || true
+/usr/sbin/nft delete table inet gale_preview >/dev/null 2>&1 || true
+ip -4 rule del priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001 >/dev/null 2>&1 || true
+ip -4 route del local 0.0.0.0/0 dev lo table 31001 >/dev/null 2>&1 || true
+fi
+if [ "${1:-}" != --simulation ]; then
+ if /usr/sbin/nft list table inet gale_preview >/dev/null 2>&1; then exit 1; fi
+ if ip -4 rule show | grep -q '^31001:'; then exit 1; fi
+ test -z "$(ip -4 route show table 31001 2>/dev/null || true)" || exit 1
+fi
+umask 077
+if [ "${1:-}" = --simulation ]; then printf '{"state":"simulation_rolled_back","network_trial_active":false}\n' >/etc/gale/routing-test/result.json; else printf '{"state":"rolled_back","network_trial_active":false}\n' >/etc/gale/routing-test/result.json; fi
+rm -f /etc/gale/routing-test/armed
+/etc/init.d/gale-route-watch disable >/dev/null 2>&1 || true
+/etc/init.d/gale-route-watch stop >/dev/null 2>&1 || true

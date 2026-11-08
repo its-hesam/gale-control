@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+for descriptor in /proc/$$/fd/*; do
+ case "$(readlink "$descriptor" 2>/dev/null || true)" in
+  *.lock) descriptor=${descriptor##*/}; eval "exec $descriptor>&-" 2>/dev/null || true ;;
+ esac
+done
+sleep 120
+test -f /tmp/gale-core-upgrade/fault-test.armed || exit 0
+test -f /etc/gale/core-upgrade.pending || exit 0
+pid=''
+if [ -f /tmp/gale-core-upgrade/fault-test.pid ]; then read -r pid </tmp/gale-core-upgrade/fault-test.pid || true; fi
+case "$pid" in ''|*[!0-9]*) ;; *)
+ if [ -r "/proc/$pid/cmdline" ] && tr '\000' '\n' <"/proc/$pid/cmdline" | grep -Eq '^/usr/share/gale/(releases/[a-z0-9-]+/helpers/)?core-upgrade-worker\.uc$'; then kill -KILL "$pid" 2>/dev/null || true; fi
+esac
+/etc/init.d/gale-tunnel stop
+ucode /usr/share/gale/core-recover.uc
+/etc/init.d/gale-tunnel start
+/etc/init.d/gale-network start
+printf 'WATCHDOG_RECOVERY_EXECUTED\n' >/tmp/gale-core-upgrade/fault-watchdog.result

@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+# Release inherited worker locks before waiting; recovery owns its own snapshot.
+for descriptor in /proc/$$/fd/*; do
+ case "$(readlink "$descriptor" 2>/dev/null || true)" in
+  *.lock) descriptor=${descriptor##*/}; eval "exec $descriptor>&-" 2>/dev/null || true ;;
+ esac
+done
+delay=$1
+case "$delay" in ''|*[!0-9]*) exit 1 ;; esac
+test "$delay" -ge 180; test "$delay" -le 11000
+sleep "$delay"
+test -f /etc/gale/recovery/pending.json || exit 0
+pid=''
+if [ -f /etc/gale/recovery/worker.pid ]; then read -r pid </etc/gale/recovery/worker.pid || true; fi
+case "$pid" in ''|*[!0-9]*) ;; *)
+ if [ -r "/proc/$pid/cmdline" ] && tr '\000' '\n' <"/proc/$pid/cmdline" | grep -Eq '^/usr/share/gale/(releases/[a-z0-9-]+/helpers/)?recovery-worker.uc$'; then kill -KILL "$pid" 2>/dev/null || true; fi
+esac
+/etc/init.d/gale-network stop >/dev/null 2>&1 || true
+/etc/init.d/gale-tunnel stop >/dev/null 2>&1 || true
+ucode /usr/share/gale-state-recover.uc
+ucode /usr/share/gale-release-recover.uc
+/sbin/fw4 reload >/dev/null 2>&1
+/usr/share/gale/current/helpers/routing-rollback --preserve-ipv6
+if [ -x /etc/init.d/network ]; then /etc/init.d/network reload >/dev/null 2>&1 || true; fi
+/etc/init.d/dnsmasq reload >/dev/null 2>&1 || true
+/etc/init.d/odhcpd reload >/dev/null 2>&1 || true
+/etc/init.d/rpcd reload >/dev/null 2>&1 || true
+/etc/init.d/gale-tunnel start >/dev/null 2>&1 || true
+/etc/init.d/gale-network start >/dev/null 2>&1 || true
+ucode -e 'import {readfile} from "fs";import {connect} from "ubus";let p=json(readfile("/etc/gale/recovery/snapshot.json")),bus=connect();for(let i=0;i<90;i++){let s=bus.call("gale-connection","status",{});if((!p.files["/etc/gale/runtime/active"]||s?.health?.ok)&&(!p.lan_required||s?.routing?.active)&&(!p.guard_required||s?.routing?.persistent_guard_active))exit(0);system(["/bin/sleep","1"],2000);}exit(1);'
+/usr/share/gale/current/helpers/recovery-guard remove
+mkdir -p /tmp/gale-full-restore
+printf '{"state":"watchdog_recovered","updated_at":%s}\n' "$(date +%s)" >/tmp/gale-full-restore/job.json

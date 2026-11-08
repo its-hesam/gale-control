@@ -1,0 +1,88 @@
+#!/usr/bin/ucode
+import {uploaded_profiles} from '/usr/share/gale/lib/transfer.uc';
+import { readfile, open, stat } from 'fs';
+import { extract_profiles, metadata } from '/usr/share/gale/lib/profiles.uc';
+import { lock_store, load_store, save_store } from '/usr/share/gale/lib/store.uc';
+import { validate_core } from '/usr/share/gale/lib/adapter.uc';
+import { probe_profile } from '/usr/share/gale/lib/benchmark.uc';
+import {performance_probe} from '/usr/share/gale/lib/performance.uc';
+import {duplicate_index,existing_profile} from '/usr/share/gale/lib/dedup.uc';
+import {review_openvpn} from '/usr/share/gale/lib/openvpn.uc';
+if (ARGV[0]=='list') {print({list:{},set_openvpn_auth:{id:'String',username:'String',password:'String',clear:'Boolean'},set_tls:{id:'String',mode:'String'},set_security:{allow_insecure:'Boolean'},import:{content:'String',upload_token:'String'},set_enabled:{id:'String',enabled:'Boolean'},validate:{id:'String'},benchmark:{id:'String'},performance:{id:'String'}});exit(0);}
+if (ARGV[0]!='call') exit(1);
+try {
+ // Atomic catalog replacement permits consistent read snapshots without writer locks.
+ let lock=ARGV[1]=='list' ? null : lock_store(), store=load_store();
+ if (ARGV[1]=='list') {print({schema_version:1,observed_at:time(),security:store.security || {allow_insecure:false},profiles:map(values(store.profiles),metadata)});exit(0);}
+ if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');
+ if(stat('/etc/gale/core-upgrade.pending'))die('CORE_UPGRADE_RUNNING');
+ let request=json(readfile('/dev/stdin') || '{}');
+ if(ARGV[1]=='set_openvpn_auth'){
+  let profile=store.profiles[request.id];if(!profile||profile.model.protocol!='openvpn')die('OPENVPN_PROFILE_REQUIRED');
+  let active;try{active=json(readfile('/etc/gale/runtime/active')||'{}');}catch(e){}
+  if(active?.profile_id==request.id)die('DISCONNECT_BEFORE_CREDENTIAL_CHANGE');
+  if(request.clear===true)delete profile.openvpn_auth;
+  else{for(let field in ['username','password'])if(type(request[field])!='string'||length(request[field])<1||length(request[field])>1024||match(request[field],/[[:cntrl:]]/))die('BAD_OPENVPN_CREDENTIAL');profile.openvpn_auth={username:request.username,password:request.password};}
+  profile.native_status='not_checked';profile.enabled=false;delete profile.test_history;delete profile.last_test;delete profile.last_performance;delete profile.last_udp_test;save_store(store);print({schema_version:1,credentials_saved:!!profile.openvpn_auth});
+ } else if(ARGV[1]=='set_tls'){
+
+  if(stat('/etc/gale/runtime/active'))die('DISCONNECT_BEFORE_SECURITY_CHANGE');
+  if(type(request.id)!='string'||!exists(store.profiles,request.id)||!(request.mode in ['inherit','strict','insecure']))die('BAD_TLS_OVERRIDE');
+  let profile=store.profiles[request.id];if(profile.model.security!='tls'||!(profile.model.protocol in ['vless','vmess','trojan','https','hysteria2','tuic','anytls']))die('TLS_OVERRIDE_NOT_APPLICABLE');
+  profile.tls_mode=request.mode;profile.native_status='not_checked';profile.native_error=null;profile.enabled=false;delete profile.last_udp_test;delete profile.last_performance;delete profile.test_history;delete profile.last_test;profile.handshake_status='not_tested';save_store(store);print({schema_version:1,tls_mode:request.mode});
+ } else if (ARGV[1]=='set_security') {
+  if(stat('/etc/gale/runtime/active'))die('DISCONNECT_BEFORE_SECURITY_CHANGE');
+  if(type(request.allow_insecure)!='bool')die('BAD_SECURITY_POLICY');
+  if(!!store.security?.allow_insecure!=request.allow_insecure)for(let profile in values(store.profiles)){
+   profile.native_status='not_checked';profile.native_error=null;profile.enabled=false;
+   delete profile.test_history;delete profile.last_test;delete profile.last_performance;delete profile.last_udp_test;profile.handshake_status='not_tested';
+  }
+  store.security={allow_insecure:request.allow_insecure};save_store(store);print({schema_version:1,security:store.security});
+ } else if (ARGV[1]=='import') {
+  let upload_lock=null;if(request.upload_token){upload_lock=open('/etc/gale/restore-stage.lock','a',0o600);if(!upload_lock||!upload_lock.lock('xn'))die('UPLOAD_BUSY');request.content=uploaded_profiles(request.upload_token);upload_lock.close();}
+  let result=extract_profiles(request.content), added=0,duplicates=0,index=duplicate_index(store);
+  for (let profile in result.profiles) {if (existing_profile(profile,store,index)) duplicates++;else {profile.sources=['manual'];store.profiles[profile.id]=profile;added++;}}
+  if (added) save_store(store);
+  print({schema_version:1,added:added,duplicates:duplicates,errors:result.errors,warnings:result.warnings||[]});
+ } else if (ARGV[1]=='set_enabled') {
+  if (type(request.id)!='string' || !exists(store.profiles,request.id) || type(request.enabled)!='bool') die('BAD_PROFILE');
+  if (request.enabled && store.profiles[request.id].native_status!='passed') die('NATIVE_VALIDATION_REQUIRED');
+  // Enabling for candidate selection is separate from establishing a tunnel.
+  store.profiles[request.id].enabled=request.enabled;save_store(store);print({schema_version:1,enabled:request.enabled});
+ } else if (ARGV[1]=='validate') {
+  if(type(request.id)!='string' || !exists(store.profiles,request.id))die('BAD_PROFILE');
+  let profile=store.profiles[request.id],result;
+  try {
+   if(profile.model.protocol in ['wireguard','openvpn'])profile.model=extract_profiles(profile.original).profiles[0].model;
+   result=validate_core(profile,store.security);
+  }
+  catch(e) {result={passed:false,exit_code:null,error:match(e.message || '',/^[A-Z0-9_]+$/) ? e.message : 'VALIDATION_FAILED',scope:'adapter_validation',handshake_tested:false};}
+  profile.native_status=result.passed ? 'passed' : 'failed';
+  profile.native_error=result.error || (result.passed ? null : 'CORE_SCHEMA_REJECTED');
+  profile.native_core=result.core || null;profile.native_core_version=result.feature_version||result.compatibility_version||null;
+  profile.native_checked_at=time();
+  if(!result.passed)profile.enabled=false;
+  save_store(store);print({schema_version:1,...result});
+ } else if (ARGV[1] in ['benchmark','performance']) {
+  if(type(request.id)!='string' || !exists(store.profiles,request.id))die('BAD_PROFILE');
+  let profile=store.profiles[request.id];
+  if(profile.native_status!='passed')die('NATIVE_VALIDATION_REQUIRED');
+  if(ARGV[1]=='performance'&&profile.last_performance&&time()-profile.last_performance.tested_at<60)die('PERFORMANCE_COOLDOWN');
+  if(ARGV[1]=='benchmark'&&profile.last_test && time()-profile.last_test.tested_at<10)die('PROBE_COOLDOWN');
+  let probe_guard=open('/etc/gale/probe.lock','a',0o600);
+  if(!probe_guard || !probe_guard.lock('xn'))die('PROBE_BUSY');
+  // Network probes must not block catalog reads or unrelated profile edits.
+  lock.close();
+  let result=ARGV[1]=='performance'?performance_probe(profile,store.security):probe_profile(profile,store.security);
+  if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');lock=lock_store();store=load_store();
+  if(!exists(store.profiles,request.id))die('PROFILE_REMOVED_DURING_PROBE');
+  profile=store.profiles[request.id];
+  if(ARGV[1]=='performance'){profile.last_performance=result;save_store(store);print({schema_version:1,result:result});exit(0);}
+  profile.last_test=result;
+  profile.handshake_status=result.ok ? 'https_probe_passed' : 'probe_failed';
+  let history=profile.test_history || [];
+  push(history,{time:result.tested_at,ok:result.ok,latency_ms:result.latency_ms,error:result.error,method:result.method,network_attempted:!(result.error in ['PROBE_NATIVE_SCHEMA_REJECTED','CONNECTION_PRIVATE_ADDRESS_BLOCKED','PROBE_PRIVATE_ADDRESS_BLOCKED'])});
+  profile.test_history=slice(history,-20);
+  save_store(store);print({schema_version:1,result:result});
+ } else die('UNKNOWN_METHOD');
+} catch(e) {print({schema_version:1,error:match(e.message || '',/^[A-Z0-9_]+$/) ? e.message : 'PROFILE_OPERATION_FAILED'});}

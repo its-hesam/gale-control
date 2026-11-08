@@ -1,0 +1,49 @@
+{
+  "helpers": [
+    "performance-probe",
+    "udp-benchmark-sample.uc",
+    "yaml-to-json.lua",
+    "core-upgrade-worker.uc",
+    "core-upgrade-launch",
+    "core-recover.uc",
+    "routing-policy-prepare.uc",
+    "routing-policy-apply",
+    "routing-policy-worker.uc",
+    "routing-policy-launch",
+    "discovery-worker.uc",
+    "discovery-launch",
+    "source-scheduler",
+    "profile-task",
+    "batch-worker.uc",
+    "connection-worker.uc",
+    "connection-watch.uc",
+    "network-boot.uc",
+    "prepare-network-guard.uc",
+    "routing-prepare.uc",
+    "routing-arm.uc",
+    "monitor-worker.uc",
+    "routing-watch.uc",
+    "ipv6-prepare.uc",
+    "ipv6-apply",
+    "ipv6-restore",
+    "routing-apply",
+    "routing-rollback",
+    "benchmark"
+  ],
+  "plugins": [
+    "gale-profiles",
+    "gale-sources",
+    "gale-jobs",
+    "gale-cores",
+    "gale-connection",
+    "gale-routing",
+    "gale-discovery",
+    "gale-backup",
+    "gale-monitor"
+  ],
+  "services": [
+    "gale-core-recovery",
+    "gale-tunnel",
+    "gale-monitor"
+  ]
+}

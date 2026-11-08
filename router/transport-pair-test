@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+directory=$1
+case "$directory" in /tmp/gale-transport-*) ;; *) exit 1 ;; esac
+if awk '$2 ~ /:(49C1|49C2)$/ && $4 == "0A" {busy=1} END {exit busy?0:1}' /proc/net/tcp /proc/net/tcp6; then exit 9; fi
+read -r server <"$directory/server-binary"
+read -r client <"$directory/client-binary"
+for binary in "$server" "$client"; do case "$binary" in /usr/share/gale/managed/xray/*/core|/usr/bin/xray) ;; *) exit 1 ;; esac; done
+cleanup() {
+ for role in server client; do
+  if [ -f "$directory/$role.pid" ]; then
+   read -r pid <"$directory/$role.pid"
+   case "$pid" in ''|*[!0-9]*) continue ;; esac
+   if tr '\000' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -Fxq "$directory/$role.json"; then kill -KILL "$pid" 2>/dev/null || true; fi
+  fi
+ done
+}
+trap cleanup EXIT HUP INT TERM
+for role in server client; do
+ binary=$server; [ "$role" = server ] || binary=$client
+ /usr/bin/timeout 18 /bin/sh -c 'echo "$$" >"$1/$2.pid"; exec "$3" run -c "$1/$2.json"' gale "$directory" "$role" "$binary" >"$directory/$role.log" 2>&1 &
+done
+sleep 1
+/usr/bin/curl --disable --silent --proxy '' --noproxy '' --socks5-hostname 127.0.0.1:18882 --max-time 8 --output "$directory/response" http://127.0.0.1/gale/ 2>/dev/null
+cmp -s "$directory/response" /www/gale/index.html

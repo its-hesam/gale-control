@@ -1,0 +1,7 @@
+import {parse_profile} from '/usr/share/gale/lib/profiles.uc';import {core_config,validate_core} from '/usr/share/gale/lib/adapter.uc';import {validate_extra,pin_download} from '/usr/share/gale/lib/xhttp-extra.uc';
+let passed=0;function ok(value){if(!value)die('TRANSPORT_ASSERT_FAILED');passed++;}
+let base='vless://00000000-0000-4000-8000-000000000001@203.0.113.1:443?type=tcp&security=tls&sni=example.com&headerType=none&host=unused.example&path=%2Funused';let p=parse_profile(base);ok(validate_core(p,{allow_insecure:false}).passed);ok(!core_config(p).config.outbounds[0].streamSettings.tcpSettings);
+let plain=parse_profile('vless://00000000-0000-4000-8000-000000000001@203.0.113.1:443?type=xhttp&security=none&path=%2Ftest');ok(validate_core(plain).passed);ok(core_config(plain).compatibility_version=='25.12.8');
+let extra={downloadSettings:{address:'203.0.113.2',port:443,network:'xhttp',security:'tls',tlsSettings:{serverName:'example.com',allowInsecure:true},xhttpSettings:{path:'/test'}}};validate_extra(extra);let rejected=false;try{validate_extra({downloadSettings:{...extra.downloadSettings,sockopt:{mark:123}}});}catch(e){rejected=true;}ok(rejected);
+rejected=false;try{pin_download({xhttpSettings:{extra:{downloadSettings:{...extra.downloadSettings,address:'127.0.0.1'}}}});}catch(e){rejected=e.message=='CONNECTION_PRIVATE_ADDRESS_BLOCKED';}ok(rejected);
+print({passed:passed,scope:'native_schema_and_secondary_endpoint_guards',provider_download_split_tested:false,network_changed:false});

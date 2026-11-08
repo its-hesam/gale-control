@@ -1,0 +1,50 @@
+#!/bin/sh
+# Explicit owner approval is required before invoking this persistent network change.
+set -eu
+test "${1:-}" = --owner-approved-persistent-guard
+umask 077
+test -x /etc/init.d/gale-network
+proxy_was_enabled=no
+if ucode -e 'import {readfile,writefile,rename,chmod} from "fs";let p="/etc/gale/runtime/active",a=json(readfile(p));a.auto_connect=true;writefile(p+".new",sprintf("%J",a));chmod(p+".new",0o600);if(!rename(p+".new",p))exit(1);'
+/etc/init.d/gale-tunnel enabled; then proxy_was_enabled=yes; fi
+test -f /etc/gale/routing-test/armed
+ucode -e 'import {connect} from "ubus"; let s=connect().call("gale-connection","status",{});if(!s.routing?.active||!s.health?.ok)exit(1);'
+# Refuse flow offloading until the offload bypass has been separately validated.
+for name in flow_offloading flow_offloading_hw; do
+ value=$(uci -q get "firewall.@defaults[0].$name" || true)
+ test "$value" != 1 || { echo OFFLOADING_MUST_BE_DISABLED >&2; exit 1; }
+done
+value=$(uci -q get 'firewall.@defaults[0].auto_includes' || true)
+test "$value" != 0
+ucode /usr/share/gale/prepare-network-guard.uc
+cp /etc/gale/runtime/active /etc/gale/network-stage/active.before
+forward=/usr/share/nftables.d/chain-pre/forward/40-gale-guard.nft
+input=/usr/share/nftables.d/chain-pre/input/40-gale-guard.nft
+for path in "$forward" "$input"; do test ! -e "$path"; done
+mkdir -p /usr/share/nftables.d/chain-pre/forward /usr/share/nftables.d/chain-pre/input
+rollback() {
+ rm -f "$forward" "$input"
+ /sbin/fw4 reload >/dev/null 2>&1 || true
+ /etc/init.d/gale-network disable >/dev/null 2>&1 || true
+ if [ -f /etc/gale/network-stage/active.before ]; then cp /etc/gale/network-stage/active.before /etc/gale/runtime/active; fi
+ rm -f /etc/gale/network-options.json
+ if [ "$proxy_was_enabled" = no ]; then /etc/init.d/gale-tunnel disable >/dev/null 2>&1 || true; fi
+}
+trap rollback EXIT HUP INT TERM
+cp /etc/gale/network-stage/forward.nft "$forward"
+cp /etc/gale/network-stage/input.nft "$input"
+chmod 644 "$forward" "$input"
+/sbin/fw4 check
+/sbin/fw4 print >/etc/gale/network-stage/rendered.nft
+grep -q '40-gale-guard.nft' /etc/gale/network-stage/rendered.nft
+/sbin/fw4 reload
+# Do not enable boot until the current dataplane and guard are both present.
+nft list chain inet fw4 forward | grep -q gale-killswitch-ipv4
+nft list chain inet fw4 input | grep -q gale-killswitch-dns
+printf '{"boot_connect":true,"kill_switch":true,"scope":"all_LAN_IPv4","public_ipv6":"blocked"}\n' >/etc/gale/network-options.json
+chmod 600 /etc/gale/network-options.json
+/etc/init.d/gale-tunnel enable
+/etc/init.d/gale-network enable
+/etc/init.d/gale-network start
+trap - EXIT HUP INT TERM
+echo PERSISTENT_GUARD_AND_BOOT_RECONNECT_ENABLED

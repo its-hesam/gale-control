@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+umask 077
+test -f /etc/gale/runtime/active
+case "$1" in /tmp/gale-health-*) ;; *) exit 1 ;; esac
+/usr/bin/curl --disable --silent --show-error --proxy '' --noproxy '' \
+ --socks5-hostname 127.0.0.1:17890 --proto '=https' --connect-timeout 5 \
+ --max-time 10 --max-filesize 16384 --output /dev/null --write-out '%{json}' \
+ https://www.gstatic.com/generate_204 >"$1/result.json" 2>/dev/null

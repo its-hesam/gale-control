@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+export GALE_RECOVERY_INTERNAL=1
+case "${1:-}" in
+ connect) exec /usr/libexec/rpcd/gale-connection call connect </etc/gale/recovery/connection-request.json ;;
+ disconnect) printf '{}' | /usr/libexec/rpcd/gale-connection call disconnect ;;
+ *) exit 1 ;;
+esac

@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+START=96
+start_service() {
+ test -f /etc/gale/routing-test/armed || return 1
+ for role in dns tcp; do
+  read -r binary <"/etc/gale/routing-test/binary-$role" || true
+  case "$binary" in /usr/bin/xray|/usr/bin/sing-box|/usr/share/gale/managed/xray/*/core|/usr/share/gale/managed/sing-box/*/core) ;; *) return 1 ;; esac
+  procd_open_instance "$role"
+  procd_set_param command "$binary" run -c "/etc/gale/routing-test/$role.json"
+  procd_set_param respawn 3600 2 3
+  procd_set_param stdout 0
+  procd_set_param stderr 0
+  procd_close_instance
+ done
+}

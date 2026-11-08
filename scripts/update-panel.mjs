@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';
+const versioned=spawnSync('ssh',['-o','BatchMode=yes','root@192.168.10.1','test -f /etc/gale/releases.json'],{encoding:'utf8'});if(versioned.status===0)throw new Error('Versioned installation: use node scripts/publish-release.mjs --activate');
+const tar=spawnSync('tar',['-czf','-','dist'],{maxBuffer:8*1024*1024});assert.equal(tar.status,0);
+const script='set -eu; umask 022; test -f /www/gale/.gale-foundation; mkdir -p /tmp/gale-panel-stage; tar -xzf - -C /tmp/gale-panel-stage; tar -czf /root/gale-last-good-panel.tgz /www/gale 2>/dev/null; cp -R /tmp/gale-panel-stage/dist/assets/. /www/gale/assets/; find /www/gale/assets -type f -exec chmod 644 {} +; cp /tmp/gale-panel-stage/dist/index.html /www/gale/index.html.new; chmod 644 /www/gale/index.html.new; mv /www/gale/index.html.new /www/gale/index.html';
+const r=spawnSync('ssh',['-o','BatchMode=yes','root@192.168.10.1',script],{input:tar.stdout,encoding:'utf8',timeout:25000});assert.equal(r.status,0,r.stderr);console.log('Panel updated; active network services unchanged');

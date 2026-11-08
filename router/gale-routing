@@ -1,0 +1,45 @@
+#!/usr/bin/ucode
+import {readfile,writefile,rename,chmod,open,mkdtemp,unlink,rmdir,mkdir,stat,popen} from 'fs';
+import {connect} from 'ubus';
+import {sha256} from 'digest';
+import {routing_state} from '/usr/share/gale/lib/routing-state.uc';
+import {core_path} from '/usr/share/gale/lib/cores.uc';
+import {validate_device_rules,dns_bridge_config,transparent_bridge_config} from '/usr/share/gale/lib/network-plan.uc';
+import {firewall_preview} from '/usr/share/gale/lib/firewall-plan.uc';
+if(ARGV[0]=='list'){print({status:{},apply_draft:{confirmed:'Boolean',revision:'String'},preview:{},save_draft:{rules:'String',default_action:'String'},preflight:{}});exit(0);}
+if(ARGV[0]!='call')exit(1);
+function devices(){let items=[];for(let line in split(readfile('/tmp/dhcp.leases')||'','\n')){let f=split(trim(line),/\s+/);if(length(f)<4||!match(f[1],/^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/)||!match(f[2],/^192\.168\.10\.[0-9]{1,3}$/))continue;if(+f[0]!=0&&+f[0]<time())continue;push(items,{mac:lc(f[1]),ip:f[2],name:substr(f[3],0,100),expires_at:+f[0]});}return items;}
+try{
+ let raw=readfile('/etc/gale/routing-draft.json'),draft=raw?json(raw):{rules:[]};
+ if(ARGV[1]=='preview'){print({schema_version:1,...firewall_preview(draft),applied:false});exit(0);}
+ if(ARGV[1]=='status'){
+  let bus=connect(),lan=bus.call('network.interface.lan','status',{}),routing=routing_state(bus),active_raw=readfile('/etc/gale/routing-active.json')||readfile('/etc/gale/routing-test/draft.json'),active=active_raw?json(active_raw):null,operation=null;
+  try{operation=json(readfile('/tmp/gale-policy-operation/result.json')||'null');}catch(e){}
+  if(operation?.state in ['queued','applying']&&time()-operation.updated_at>60)operation={state:'interrupted',error:'CHECK_NETWORK_STATUS'};
+  print({schema_version:1,devices:devices(),draft:draft,draft_revision:sha256(raw||''),active_draft:active,pending_changes:!!active_raw&&active_raw!=raw,operation:operation,lan:{device:lan?.l3_device,addresses:lan?.['ipv4-address']},applied:routing.active,scope:routing.scope,approval_required:true,limitations:['IPv4 device policies; IPv6 tunneling requires all-LAN VPN without direct/block exceptions','Management destinations remain local']});exit(0);
+ }
+ if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');
+ if(ARGV[1]=='apply_draft'){
+  let req=json(readfile('/dev/stdin')||'{}');if(req.confirmed!==true)die('EXPLICIT_POLICY_CONFIRMATION_REQUIRED');if(req.revision!=sha256(raw||''))die('DRAFT_CHANGED_REFRESH');
+  if(!routing_state(connect()).active)die('ACTIVE_NETWORK_SESSION_REQUIRED');
+  let dir='/tmp/gale-policy-operation';if(!stat(dir))mkdir(dir);chmod(dir,0o700);let lock=open(dir+'/queue.lock','a',0o600);if(!lock||!lock.lock('xn'))die('POLICY_BUSY');
+  let previous;try{previous=json(readfile(dir+'/result.json')||'null');}catch(e){}if(previous?.state in ['queued','applying']&&time()-previous.updated_at<60)die('POLICY_BUSY');
+  writefile(dir+'/revision',req.revision);writefile(dir+'/result.json',sprintf('%J',{state:'queued',updated_at:time()}));lock.close();let child=popen('/usr/share/gale/routing-policy-launch','r');if(!child||child.close()!=0)die('POLICY_LAUNCH_FAILED');print({schema_version:1,state:'queued'});exit(0);
+ }
+ if(ARGV[1]=='save_draft'){
+  let req=json(readfile('/dev/stdin')||'{}'),rules;try{rules=json(req.rules);}catch(e){die('BAD_RULES_JSON');}
+  let normalized=validate_device_rules(rules,devices()),guard=open('/etc/gale/routing-draft.lock','a',0o600);if(!guard||!guard.lock('xn'))die('POLICY_BUSY');
+  let default_action=req.default_action||draft.default_action||'direct';if(!(default_action in ['vpn','direct']))die('BAD_DEFAULT_ACTION');
+  draft={default_action:default_action,lan_cidr:'192.168.10.0/24',rules:normalized,updated_at:time(),applied:false};if(!writefile('/etc/gale/routing-draft.new',sprintf('%J',draft)))die('POLICY_WRITE_FAILED');chmod('/etc/gale/routing-draft.new',0o600);if(!rename('/etc/gale/routing-draft.new','/etc/gale/routing-draft.json'))die('POLICY_COMMIT_FAILED');print({schema_version:1,draft:draft,applied:false});exit(0);
+ }
+ if(ARGV[1]=='preflight'){
+  let dir=mkdtemp('/tmp/gale-native-XXXXXX');if(!dir)die('PREFLIGHT_STORAGE_FAILED');let results=[];
+  for(let item in [{core:'sing-box',config:dns_bridge_config(),case:'dns_over_https_via_loopback_proxy'},{core:'xray',config:transparent_bridge_config(),case:'transparent_tcp_to_loopback_proxy'}]){
+   writefile(dir+'/config.json',sprintf('%J',item.config));let code=system(['/usr/share/gale/capture',dir+'/output',core_path(item.core),item.core=='xray'?'run':'check',...(item.core=='xray'?['-test']:[]),'-c',dir+'/config.json'],5000);
+   push(results,{case:item.case,core:item.core,native_schema_passed:code==0,network_tested:false});
+  }
+  for(let f in ['config.json','output'])unlink(dir+'/'+f);rmdir(dir);
+  print({schema_version:1,results:results,applied:false,approval_required:true});exit(0);
+ }
+ die('UNKNOWN_METHOD');
+}catch(e){print({schema_version:1,error:match(e.message||'',/^[A-Z0-9_]+$/)?e.message:'ROUTING_PLAN_FAILED'});}

@@ -1,0 +1,6 @@
+#!/bin/sh /etc/rc.common
+START=17
+STOP=9
+start() {
+ /usr/bin/ucode /usr/share/gale-state-recover.uc
+}

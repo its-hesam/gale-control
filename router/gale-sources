@@ -1,0 +1,74 @@
+#!/usr/bin/ucode
+import { readfile,stat } from 'fs';
+import { source_url, fetch_source, validate_user_agent } from '/usr/share/gale/lib/sources.uc';
+import { extract_profiles } from '/usr/share/gale/lib/profiles.uc';
+import { lock_store, load_store, save_store } from '/usr/share/gale/lib/store.uc';
+import {extract_public_links,catalog_candidates,public_candidates} from '/usr/share/gale/lib/source-discovery.uc';
+import {duplicate_index,existing_profile} from '/usr/share/gale/lib/dedup.uc';
+import {discovery_report} from '/usr/share/gale/lib/discovery.uc';
+if (ARGV[0]=='list') {print({list:{},discover:{},candidates:{},approve_candidate:{id:'String'},due:{},set_kind:{id:'String',kind:'String'},add:{url:'String',name:'String',kind:'String',public_untrusted:'Boolean',user_agent:'String'},refresh:{id:'String'},set_enabled:{id:'String',enabled:'Boolean'},set_interval:{id:'String',seconds:'Integer'},set_user_agent:{id:'String',user_agent:'String'}});exit(0);}
+if (ARGV[0]!='call') exit(1);
+function public_source(source) {
+ return {id:source.id,kind:source.kind||'subscription',candidate_count:source.candidate_count||0,quarantined_count:source.quarantined_count||0,parse_errors:source.parse_errors||[],warnings:source.warnings||[],name:source.name,host:source.host,enabled:source.enabled,public_untrusted:source.public_untrusted,last_attempt:source.last_attempt,last_success:source.last_success,last_error:source.last_error,profile_count:length(source.profile_ids || []),last_added:source.last_added,last_duplicates:source.last_duplicates,refresh_interval:source.refresh_interval || 0,user_agent:source.user_agent || '',last_user_agent:source.last_user_agent};
+}
+try {
+ if(!(ARGV[1] in ['list','discover','due','candidates'])&&stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');
+ let lock=ARGV[1] in ['list','discover','due','candidates']?null:lock_store(),store=load_store();
+ if(ARGV[1]=='candidates'){print({schema_version:1,candidates:public_candidates(store)});exit(0);}
+ if(ARGV[1]=='discover'){print(discovery_report(store,time()));exit(0);}
+ if (ARGV[1]=='list') {print({schema_version:1,sources:map(values(store.sources),public_source)});exit(0);}
+ if (ARGV[1]=='due') {print({schema_version:1,ids:map(filter(values(store.sources),s=>s.enabled && s.refresh_interval>=3600 && time()-(s.last_attempt || 0)>=s.refresh_interval),s=>s.id)});exit(0);}
+ let request=json(readfile('/dev/stdin') || '{}');
+ if(ARGV[1]=='approve_candidate'){
+  let candidate=store.discovery_candidates?.[request.id];if(!candidate||candidate.status!='proposed')die('BAD_DISCOVERY_CANDIDATE');if(length(keys(store.sources))>=30)die('SOURCE_LIMIT');let info=source_url(candidate.url);if(!exists(store.sources,info.id))store.sources[info.id]={...info,name:candidate.name,kind:'subscription',enabled:true,public_untrusted:true,profile_ids:[],refresh_interval:0,user_agent:'',last_error:null};candidate.status='approved';save_store(store);print({schema_version:1,source:public_source(store.sources[info.id])});exit(0);
+ }
+ if (ARGV[1]=='add') {
+  let info=source_url(request.url);
+  if (length(keys(store.sources))>=30) die('SOURCE_LIMIT');
+  if (exists(store.sources,info.id)) die('SOURCE_EXISTS');
+  if (type(request.name)!='string' || length(request.name)>100) die('BAD_SOURCE_NAME');
+  let kind=request.kind||'subscription';if(!(kind in ['subscription','link_index','catalog']))die('BAD_SOURCE_KIND');
+  let agent=validate_user_agent(request.user_agent==null ? '' : request.user_agent);
+  store.sources[info.id]={...info,kind:kind,name:request.name || info.host,enabled:true,public_untrusted:request.public_untrusted!==false,profile_ids:[],last_error:null,refresh_interval:0,user_agent:agent};
+  save_store(store);print({schema_version:1,source:public_source(store.sources[info.id])});
+ } else {
+  if (type(request.id)!='string' || !exists(store.sources,request.id)) die('BAD_SOURCE_ID');
+  let source=store.sources[request.id];
+  if(ARGV[1]=='set_kind'){if(!(request.kind in ['subscription','link_index','catalog']))die('BAD_SOURCE_KIND');source.kind=request.kind;save_store(store);print({schema_version:1,source:public_source(source)});
+  } else if (ARGV[1]=='set_enabled') {
+   if (type(request.enabled)!='bool') die('BAD_SOURCE_STATE');
+   source.enabled=request.enabled;save_store(store);print({schema_version:1,source:public_source(source)});
+  } else if (ARGV[1]=='set_user_agent') {
+   source.user_agent=validate_user_agent(request.user_agent);save_store(store);print({schema_version:1,source:public_source(source)});
+  } else if (ARGV[1]=='set_interval') {
+   if(type(request.seconds)!='int' || !(request.seconds in [0,3600,21600,86400]))die('BAD_REFRESH_INTERVAL');
+   source.refresh_interval=request.seconds;save_store(store);print({schema_version:1,source:public_source(source)});
+  } else if (ARGV[1]=='refresh') {
+   if (!source.enabled) die('SOURCE_DISABLED');
+   if (source.last_attempt && time()-source.last_attempt<30) die('SOURCE_COOLDOWN');
+   source.last_attempt=time();
+   source.last_user_agent=source.user_agent || '';
+   try {
+    let expected_url=source.url,expected_agent=source.user_agent||'';save_store(store);lock.close();lock=null;let body,fetch_error;
+    try{body=fetch_source(expected_url,expected_agent);}catch(error){fetch_error=error.message;}
+    if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');lock=lock_store();store=load_store();source=store.sources[request.id];if(!source||source.url!=expected_url||(source.user_agent||'')!=expected_agent)die('SOURCE_CHANGED_DURING_FETCH');if(fetch_error)die(fetch_error);
+    if(source.kind=='catalog'){source.candidate_count=catalog_candidates(body,store,source);source.last_success=time();source.last_error=null;source.last_good_body=body;save_store(store);print({schema_version:1,source:public_source(source)});exit(0);}
+    let result=extract_profiles(source.kind=='link_index'?extract_public_links(body):body);source.quarantined_count=length(result.errors);source.parse_errors=slice(result.errors,0,30);source.warnings=result.warnings||[];
+    if (!length(result.profiles)) die('SOURCE_NO_VALID_PROFILES');
+    // A partial parse is quarantined: retain the entire last-known-good snapshot.
+    if(length(result.errors)&&source.kind!='link_index')die('SOURCE_PARTIAL_PARSE');
+    let added=0,duplicates=0,ids=[],index=duplicate_index(store);
+    for (let profile in result.profiles) {
+     let existing=existing_profile(profile,store,index);if(!existing){store.profiles[profile.id]=profile;added++;}else{profile.id=existing;duplicates++;}
+     let record=store.profiles[profile.id];
+     if (!(source.id in record.sources)) push(record.sources,source.id);
+     if (!(profile.id in ids)) push(ids,profile.id);
+    }
+    for(let old_id in source.profile_ids||[])if(!(old_id in ids)){let p=store.profiles[old_id];if(p){p.sources=filter(p.sources,s=>s!=source.id);if(!length(p.sources)){p.source_retired=true;p.enabled=false;}}}
+    for(let id in ids)store.profiles[id].source_retired=false;
+    source.profile_ids=ids;source.last_added=added;source.last_duplicates=duplicates;source.last_success=time();source.last_error=null;source.last_good_body=body;
+   } catch(e) {source.last_error=match(e.message || '',/^[A-Z0-9_]+$/) ? e.message : 'SOURCE_UPDATE_FAILED';}
+   if(!lock)die('STORE_BUSY');save_store(store);print({schema_version:1,source:public_source(source)});
+  } else die('UNKNOWN_METHOD');
+ }
+} catch(e) {print({schema_version:1,error:match(e.message || '',/^[A-Z0-9_]+$/) ? e.message : 'SOURCE_OPERATION_FAILED'});}

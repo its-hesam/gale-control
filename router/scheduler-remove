@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+umask 077
+directory=$(mktemp -d /tmp/gale-cron-XXXXXX)
+trap 'rm -f "$directory/original" "$directory/new"; rmdir "$directory"' EXIT
+crontab -l >"$directory/original" 2>/dev/null || true
+sed '/# gale-source-scheduler$/d' "$directory/original" >"$directory/new"
+crontab "$directory/new"

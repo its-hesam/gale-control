@@ -1,0 +1,11 @@
+#!/bin/sh
+# Called only by the private ucode adapter with an internal executable allowlist.
+# Arguments are passed as argv; no eval and no user-authored shell text.
+set -eu
+destination=$1
+shift
+case "$1" in /sbin/uci|/usr/bin/sha256sum|/usr/bin/resolveip|/usr/bin/curl|/usr/bin/xray|/usr/bin/sing-box|/bin/ubus|/usr/share/gale/profile-task|/usr/share/gale/recovery-task|/usr/share/gale/managed/xray/*/core|/usr/share/gale/managed/sing-box/*/core) ;; *) exit 1 ;; esac
+case "$1" in
+ /usr/bin/xray|/usr/share/gale/managed/xray/*/core) exec "$@" >"$destination" 2>&1 ;;
+ *) exec "$@" >"$destination" 2>/dev/null ;;
+esac

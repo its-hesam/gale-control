@@ -1,0 +1,7 @@
+#!/bin/sh /etc/rc.common
+# Stable boot anchor: intentionally outside the swappable application release.
+START=93
+STOP=9
+start() {
+ /usr/bin/ucode /usr/share/gale-release-recover.uc
+}

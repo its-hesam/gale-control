@@ -1,0 +1,6 @@
+import {sha256} from 'digest';
+import {open,writefile,readfile,mkdir,stat,chmod,rename} from 'fs';
+let dir='/tmp/gale-policy-operation';if(!stat(dir))mkdir(dir);chmod(dir,0o700);let guard=open(dir+'/apply.lock','a',0o600);if(!guard||!guard.lock('xn'))exit(0);let control=open('/tmp/gale-connection/control.lock','a',0o600);if(!control||!control.lock('xn')){writefile(dir+'/result.json',sprintf('%J',{state:'failed',error:'CONNECTION_BUSY',updated_at:time()}));exit(0);}
+let upgrade_lock=open('/etc/gale/core-upgrade.lock','a',0o600);if(!upgrade_lock||!upgrade_lock.lock('xn')||stat('/etc/gale/core-upgrade.pending')){writefile(dir+'/result.json',sprintf('%J',{state:'failed',error:'CORE_UPGRADE_RUNNING',updated_at:time()}));exit(0);}
+let policy_lock=open('/etc/gale/routing-draft.lock','a',0o600);if(!policy_lock||!policy_lock.lock('xn')||sha256(readfile('/etc/gale/routing-draft.json')||'')!=trim(readfile(dir+'/revision')||'')){writefile(dir+'/result.json',sprintf('%J',{state:'failed',error:'DRAFT_CHANGED_OR_BUSY',updated_at:time()}));exit(0);}
+writefile(dir+'/result.json',sprintf('%J',{state:'applying',updated_at:time()}));let code=system(['/usr/share/gale/routing-policy-apply'],25000);if(code!=0)writefile(dir+'/result.json',sprintf('%J',{state:'failed',error:'POLICY_APPLY_FAILED_ROLLBACK_REQUESTED',updated_at:time()}));

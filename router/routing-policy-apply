@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+umask 077
+root=/tmp/gale-policy-operation
+mkdir -p "$root"
+# The ucode launcher holds the application lock for this process.
+test -f /etc/gale/routing-test/armed
+ucode /usr/share/gale/routing-policy-prepare.uc >/dev/null
+cd /etc/gale/routing-next
+sha256sum -c draft.sha256 >/dev/null
+cp /etc/gale/routing-test/rules.nft old-rules.nft
+cp /etc/gale/routing-test/draft.json old-draft.json
+persistent=no
+if [ -f /etc/gale/network-options.json ]; then
+ persistent=yes
+ cp /usr/share/nftables.d/chain-pre/forward/40-gale-guard.nft old-forward.nft
+ cp /usr/share/nftables.d/chain-pre/input/40-gale-guard.nft old-input.nft
+fi
+restore() {
+ if [ "$persistent" = yes ]; then
+  cp old-forward.nft /usr/share/nftables.d/chain-pre/forward/40-gale-guard.nft
+  cp old-input.nft /usr/share/nftables.d/chain-pre/input/40-gale-guard.nft
+  /sbin/fw4 reload >/dev/null 2>&1 || true
+ fi
+ { printf 'delete table inet gale_preview\n'; cat old-rules.nft; } >restore.nft
+ /usr/sbin/nft -f restore.nft >/dev/null 2>&1 || /usr/share/gale/routing-rollback
+ cp old-rules.nft /etc/gale/routing-test/rules.nft
+ cp old-draft.json /etc/gale/routing-test/draft.json
+ cp old-draft.json /etc/gale/routing-active.json
+}
+trap restore EXIT HUP INT TERM
+if [ "$persistent" = yes ]; then
+ cp forward.nft /usr/share/nftables.d/chain-pre/forward/40-gale-guard.nft
+ cp input.nft /usr/share/nftables.d/chain-pre/input/40-gale-guard.nft
+ /sbin/fw4 check >/dev/null
+ /sbin/fw4 reload >/dev/null
+fi
+/usr/sbin/nft -f batch.nft
+cp rules.nft /etc/gale/routing-test/rules.nft
+cp draft.json /etc/gale/routing-test/draft.json
+cp draft.json /etc/gale/routing-active.new
+mv /etc/gale/routing-active.new /etc/gale/routing-active.json
+trap - EXIT HUP INT TERM
+printf '{"state":"applied","updated_at":%s}\n' "$(date +%s)" >"$root/result.json"

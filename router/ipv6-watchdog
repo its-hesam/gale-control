@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+for descriptor in /proc/$$/fd/*; do
+ case "$(readlink "$descriptor" 2>/dev/null || true)" in
+  *.lock) descriptor=${descriptor##*/}; eval "exec $descriptor>&-" 2>/dev/null || true ;;
+ esac
+done
+sleep 90
+/usr/share/gale/ipv6-restore

@@ -1,0 +1,10 @@
+#!/bin/sh /etc/rc.common
+START=94
+start(){
+ if [ -f /etc/gale/code-update.pending ]; then
+  tar -tzf /root/gale-before-feature-update.tgz >/dev/null || return 1
+  tar -xzf /root/gale-before-feature-update.tgz -C / || return 1
+  rm -f /etc/gale/code-update.pending
+ fi
+ /usr/bin/ucode /usr/share/gale/core-recover.uc
+}

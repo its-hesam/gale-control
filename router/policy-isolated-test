@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+umask 077
+directory=$(mktemp -d /tmp/gale-policy-XXXXXX)
+gw=no; client=no; server=no; http_pid=''
+cleanup() {
+ if [ -n "$http_pid" ]; then kill "$http_pid" 2>/dev/null || true; fi
+ if [ "$client" = yes ]; then ip netns del gale-policy-client; fi
+ if [ "$server" = yes ]; then ip netns del gale-policy-server; fi
+ if [ "$gw" = yes ]; then ip netns del gale-policy-gw; fi
+ rm -f "$directory/index.html" "$directory/rules.nft" "$directory/response"
+ rmdir "$directory"
+}
+trap cleanup EXIT HUP INT TERM
+for name in gale-policy-gw gale-policy-client gale-policy-server; do
+ if ip netns list | grep -q "^$name\b"; then exit 1; fi
+done
+ip netns add gale-policy-gw; gw=yes
+ip netns add gale-policy-client; client=yes
+ip netns add gale-policy-server; server=yes
+ip link add gp-c type veth peer name gp-g0
+ip link set gp-c netns gale-policy-client
+ip link set gp-g0 netns gale-policy-gw
+ip link add gp-s type veth peer name gp-g1
+ip link set gp-s netns gale-policy-server
+ip link set gp-g1 netns gale-policy-gw
+for name in gale-policy-gw gale-policy-client gale-policy-server; do ip -n "$name" link set lo up; done
+ip -n gale-policy-gw link set gp-g0 name br-lan
+ip -n gale-policy-gw address add 192.168.10.1/24 dev br-lan
+ip -n gale-policy-gw address add 198.18.0.1/24 dev gp-g1
+ip -n gale-policy-gw link set br-lan up
+ip -n gale-policy-gw link set gp-g1 up
+ip netns exec gale-policy-gw sysctl -q -w net.ipv4.ip_forward=1
+ip -n gale-policy-gw route add local 0.0.0.0/0 dev lo table 31001
+ip -n gale-policy-gw rule add priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001
+for host in 20 30 40; do ip -n gale-policy-client address add "192.168.10.$host/24" dev gp-c; done
+ip -n gale-policy-client link set gp-c up
+ip -n gale-policy-client route add default via 192.168.10.1
+ip -n gale-policy-server address add 198.18.0.2/24 dev gp-s
+ip -n gale-policy-server link set gp-s up
+ip -n gale-policy-server route add default via 198.18.0.1
+printf 'GALE_POLICY_ISOLATED\n' >"$directory/index.html"
+chmod 755 "$directory"
+chmod 644 "$directory/index.html"
+ip netns exec gale-policy-server /usr/sbin/uhttpd -f -p 198.18.0.2:18080 -h "$directory" >/dev/null 2>&1 &
+http_pid=$!
+sleep 1
+request() { ip netns exec gale-policy-client curl --disable --silent --proxy '' --noproxy '*' --interface "192.168.10.$1" --connect-timeout 1 --max-time 2 "http://198.18.0.2:18080/index.html"; }
+ucode -e 'import {firewall_preview} from "/usr/share/gale/lib/firewall-plan.uc";printf("%s",firewall_preview({default_action:"vpn",rules:[{ip:"192.168.10.20",action:"direct"},{ip:"192.168.10.30",action:"block"}]},true).nft);' >"$directory/rules.nft"
+ip netns exec gale-policy-gw nft -f "$directory/rules.nft"
+request 20 >"$directory/response"
+grep -qx GALE_POLICY_ISOLATED "$directory/response"
+if request 30 >"$directory/response"; then exit 1; fi
+if request 40 >"$directory/response"; then exit 1; fi
+ip netns exec gale-policy-gw nft delete table inet gale_preview
+ucode -e 'import {firewall_preview} from "/usr/share/gale/lib/firewall-plan.uc";printf("%s",firewall_preview({default_action:"direct",rules:[{ip:"192.168.10.20",action:"vpn"},{ip:"192.168.10.30",action:"block"}]},true).nft);' >"$directory/rules.nft"
+ip netns exec gale-policy-gw nft -f "$directory/rules.nft"
+request 40 >"$directory/response"
+grep -qx GALE_POLICY_ISOLATED "$directory/response"
+if request 30 >"$directory/response"; then exit 1; fi
+if request 20 >"$directory/response"; then exit 1; fi
+printf '{"passed":6,"scope":"three_isolated_network_namespaces","default_vpn_and_default_direct":true,"direct_bypass_proven":true,"block_and_VPN_fail_closed":true,"physical_LAN_changed":false}\n'

@@ -1,0 +1,42 @@
+#!/bin/sh
+# This entry point is deliberately absent from ubus and the web panel.
+# Run only following explicit owner approval of the documented 90-second trial.
+set -eu
+session=no
+case "${1:-}" in --all-lan-session) expected_mode=tcp_udp; session=yes ;; --approved-90s-all-lan) expected_mode=tcp_only ;; --approved-90s-all-lan-udp) expected_mode=tcp_udp ;; *) echo 'Explicit approval of the matching all-LAN 90-second trial is required.' >&2; exit 1 ;; esac
+directory=/etc/gale/routing-test
+test ! -f "$directory/armed"
+test -f "$directory/manifest.sha256"
+cd "$directory"
+read -r prepared_mode <trial-mode
+test "$prepared_mode" = "$expected_mode"
+sha256sum -c manifest.sha256 >/dev/null
+if /usr/sbin/nft list table inet gale_preview >/dev/null 2>&1; then echo 'Reserved test table already exists' >&2; exit 1; fi
+if ip -4 rule show | grep -q '^31001:'; then echo 'Reserved rule priority already exists' >&2; exit 1; fi
+test -z "$(ip -4 route show table 31001 2>/dev/null || true)"
+if awk '$2 ~ /:(45E5|14EA)$/ {busy=1} END {exit busy?0:1}' /proc/net/tcp /proc/net/udp /proc/net/tcp6 /proc/net/udp6; then echo 'Reserved bridge port already in use' >&2; exit 1; fi
+/usr/sbin/nft -c -f rules.nft
+trap '/usr/share/gale/routing-rollback' EXIT HUP INT TERM
+if [ "$session" = yes ]; then ucode /usr/share/gale/routing-arm.uc session; else ucode /usr/share/gale/routing-arm.uc; fi
+/etc/init.d/gale-route-watch enable
+/etc/init.d/gale-route-watch start
+ready=no
+for attempt in 1 2 3 4 5; do
+ if ubus call service list '{"name":"gale-route-watch"}' | jsonfilter -e '@["gale-route-watch"].instances.guard.running' | grep -qx true; then ready=yes; break; fi
+ sleep 1
+done
+test "$ready" = yes
+ip -4 rule show >before.rules
+ip -4 route show table all >before.routes
+/usr/sbin/nft -s list ruleset >before.nft
+ip -4 route add local 0.0.0.0/0 dev lo table 31001
+ip -4 rule add priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001
+if ucode -e 'import {readfile} from "fs";if(!json(readfile("/etc/gale/network-options.json")||"{}").ipv6_tunnel)exit(1);'; then
+ ip -6 route add local ::/0 dev lo table 31001
+ ip -6 rule add priority 31001 fwmark 0x6a1e0001/0xffffffff lookup 31001
+fi
+/usr/sbin/nft -f rules.nft
+/etc/init.d/gale-route-bridges start
+if [ "$session" = yes ]; then printf '{"state":"session_active","network_routing_active":true}\n' >result.json; else printf '{"state":"trial_active","network_trial_active":true,"automatic_rollback_seconds":90}\n' >result.json; fi
+trap - EXIT HUP INT TERM
+echo 'Temporary all-LAN trial active; independent watchdog will restore routing after approximately 90 seconds.'

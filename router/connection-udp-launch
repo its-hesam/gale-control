@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+(
+ /usr/bin/timeout 12 /usr/bin/ucode /usr/share/gale/connection-udp.uc </dev/null >/dev/null 2>&1 || {
+  umask 077
+  printf '{"state":"failed","ok":false,"error":"UDP_TEST_TIMEOUT_OR_WORKER_FAILED"}\n' >/tmp/gale-connection/udp.new
+  mv /tmp/gale-connection/udp.new /tmp/gale-connection/udp.json
+ }
+) </dev/null >/dev/null 2>&1 &

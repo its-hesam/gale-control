@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+root=/etc/gale/acceptance-stage
+test -f "$root/armed" || exit 0
+nft delete table inet gale_acceptance >/dev/null 2>&1 || true
+/etc/init.d/gale-tunnel stop
+for name in config.json binary active sidecars sidecar-1.json sidecar-2.json binary-1 binary-2; do
+ if [ -f "$root/runtime/$name" ]; then cp "$root/runtime/$name" "/etc/gale/runtime/$name"; else rm -f "/etc/gale/runtime/$name"; fi
+done
+rm -f /etc/gale/runtime/pending /tmp/gale-connection/health.json
+/etc/init.d/gale-tunnel start
+rm -f "$root/armed"

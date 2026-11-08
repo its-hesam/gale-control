@@ -1,0 +1,2 @@
+import {recovery_hmac} from '/usr/share/gale/lib/recovery.uc';
+let key='';for(let i=0;i<20;i++)key+=chr(11);assert(recovery_hmac(key,'Hi There')=='b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7','RFC4231_HMAC_FAILED');assert(recovery_hmac(key,'Hi There')!=recovery_hmac(key,'Hi There!'),'HMAC_MESSAGE_CHANGE_NOT_DETECTED');print({passed:2,standard:'RFC4231_HMAC_SHA256',network_changed:false});

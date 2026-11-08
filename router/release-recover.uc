@@ -1,0 +1,7 @@
+import {readfile,writefile,rename,symlink,unlink,chmod,stat} from 'fs';import {sha256} from 'digest';
+let path='/etc/gale/releases.json',raw=readfile(path);if(!raw)exit(0);let state;try{state=json(raw);}catch(e){die('RELEASE_REGISTRY_CORRUPT');}
+function valid(id){if(type(id)!='string'||!match(id,/^[a-z0-9-]{1,80}$/))return false;let root='/usr/share/gale/releases/'+id,manifest=readfile(root+'/SHA256SUMS');if(!manifest||sha256(manifest)!=state.manifests?.[id])return false;return system(['/bin/sh','-c','cd '+root+' && sha256sum -c SHA256SUMS >/dev/null 2>&1'],30000)==0;}
+let target=valid(state.current)?state.current:valid(state.previous)?state.previous:null;if(!target)die('NO_VALID_APPLICATION_RELEASE');
+let temporary='/usr/share/gale/current.recover';unlink(temporary);if(!symlink('/usr/share/gale/releases/'+target,temporary)||!rename(temporary,'/usr/share/gale/current'))die('RELEASE_POINTER_RECOVERY_FAILED');
+let changed=!!state.pending||target!=state.current;if(target!=state.current){state.failed_release=state.current;state.current=target;state.previous=null;}state.pending=null;if(changed){state.recovered_at=time();let body=sprintf('%J',state);if(writefile(path+'.recover',body)!=length(body))die('RELEASE_REGISTRY_WRITE_FAILED');chmod(path+'.recover',0o600);if(!rename(path+'.recover',path))die('RELEASE_REGISTRY_COMMIT_FAILED');system(['/bin/sync'],5000);}
+print({recovered:changed,current:target,pending:false});

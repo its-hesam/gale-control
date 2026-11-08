@@ -1,0 +1,45 @@
+#!/usr/bin/ucode
+import {readfile,writefile,rename,open,lsdir,stat,mkdir,chmod,popen} from 'fs';
+import {core_state,core_path} from '/usr/share/gale/lib/cores.uc';
+import {lock_store,load_store,save_store} from '/usr/share/gale/lib/store.uc';
+import {activate_core} from '/usr/share/gale/lib/core-activation.uc';
+if(ARGV[0]=='list'){print({status:{},upgrade:{id:'String',version:'String'},cancel_upgrade:{},stage:{id:'String',version:'String',allow_prerelease:'Boolean'},activate:{id:'String',version:'String'},rollback:{id:'String'}});exit(0);}
+if(ARGV[0]!='call')exit(1);
+function check(id,path){let fixture=id=='xray'?'xray-direct.json':'sing-box-direct.json';return system([path,id=='xray'?'run':'check',...(id=='xray'?['-test']:[]),'-c','/usr/share/gale/selftests/'+fixture],5000)==0;}
+try{
+ let state=core_state();
+ if(ARGV[1]=='status'){
+  let cores=[];
+  for(let id in ['xray','sing-box']){
+   let releases=[];
+   for(let v in lsdir('/usr/share/gale/managed/'+id)||[]){if(!match(v,/^[0-9]+\.[0-9]+\.[0-9]+$/))continue;let raw=readfile('/usr/share/gale/managed/'+id+'/'+v+'/receipt.json');if(raw)try{let r=json(raw);push(releases,{version:v,verification:r.verification,signature_verified:!!r.signature_verified,prerelease:!!r.prerelease,binary_sha256:r.binary_sha256});}catch(e){}}
+   push(cores,{id:id,current:state[id]?.current || 'packaged',previous:state[id]?.previous || 'packaged',releases:releases});
+  }
+  let raw=readfile('/tmp/gale-core-update/job.json'),download=raw?json(raw):null;
+  if(download && !(download.state in ['staged','failed']) && time()-download.updated_at>600){download.state='interrupted';}
+  print({schema_version:1,cores:cores,download:download,upgrade:(()=>{try{return json(readfile('/tmp/gale-core-upgrade/job.json')||'null');}catch(e){return null;}})()});exit(0);
+ }
+ if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');
+ let req=json(readfile('/dev/stdin')||'{}');if(ARGV[1]!='cancel_upgrade'&&!(req.id in ['xray','sing-box']))die('BAD_CORE');
+ if(ARGV[1]=='stage'){
+  if(type(req.version)!='string'||!match(req.version,/^[0-9]+\.[0-9]+\.[0-9]+$/))die('BAD_CORE_VERSION');
+  if(!match(readfile('/etc/openwrt_release')||'',/DISTRIB_ARCH='arm_cortex-a7_neon-vfpv4'/))die('CORE_ARCH_UNSUPPORTED');
+  let root='/tmp/gale-core-update';if(!stat(root))mkdir(root);chmod(root,0o700);
+  let control=open(root+'/control.lock','a',0o600);if(!control||!control.lock('xn'))die('CORE_MANAGER_BUSY');
+  let raw=readfile(root+'/job.json'),old=raw?json(raw):null;
+  if(old && !(old.state in ['staged','failed','interrupted']) && time()-old.updated_at<600)die('CORE_DOWNLOAD_RUNNING');
+  if(stat('/usr/share/gale/managed/'+req.id+'/'+req.version))die('CORE_ALREADY_STAGED');
+  let job={id:req.id,version:req.version,allow_prerelease:!!req.allow_prerelease,state:'queued',started_at:time(),updated_at:time()};
+  writefile(root+'/job.json',sprintf('%J',job));chmod(root+'/job.json',0o600);control.close();
+  let child=popen('/usr/share/gale/core-download-launch','r');if(!child||child.close()!=0)die('CORE_DOWNLOAD_LAUNCH_FAILED');
+  print({schema_version:1,download:job});exit(0);
+ }
+ if(ARGV[1]=='cancel_upgrade'){writefile('/tmp/gale-core-upgrade/cancel','1');print({schema_version:1,state:'cancellation_requested'});exit(0);}
+ if(ARGV[1]=='upgrade'){
+  if(type(req.version)!='string'||!match(req.version,/^[0-9]+\.[0-9]+\.[0-9]+$/))die('BAD_CORE_VERSION');
+  let dir='/tmp/gale-core-upgrade';if(!stat(dir))mkdir(dir);chmod(dir,0o700);let lock=open(dir+'/queue.lock','a',0o600);if(!lock||!lock.lock('xn'))die('CORE_MANAGER_BUSY');let old;try{old=json(readfile(dir+'/job.json')||'null');}catch(e){}if(old?.state in ['queued','preparing','testing','restoring'])die('CORE_UPGRADE_RUNNING');
+  writefile(dir+'/request.json',sprintf('%J',{id:req.id,version:req.version}));writefile(dir+'/job.json',sprintf('%J',{state:'queued',id:req.id,version:req.version,updated_at:time()}));lock.close();let child=popen('/usr/share/gale/core-upgrade-launch','r');if(!child||child.close()!=0)die('CORE_UPGRADE_LAUNCH_FAILED');print({schema_version:1,state:'queued'});exit(0);
+ }
+ if(stat('/etc/gale/core-upgrade.pending'))die('CORE_UPGRADE_RUNNING');let exclusion=open('/etc/gale/core-upgrade.lock','a',0o600);if(!exclusion||!exclusion.lock('xn'))die('CORE_UPGRADE_RUNNING');
+ let target;if(ARGV[1]=='activate'){if(type(req.version)!='string'||!(req.version=='packaged'||match(req.version,/^[0-9]+\.[0-9]+\.[0-9]+$/)))die('BAD_CORE_VERSION');target=req.version=='packaged'?null:req.version;}else if(ARGV[1]=='rollback')target=state[req.id]?.previous||null;else die('UNKNOWN_METHOD');print(activate_core(req.id,target));
+}catch(e){print({schema_version:1,error:match(e.message||'',/^[A-Z0-9_]+$/)?e.message:'CORE_OPERATION_FAILED'});}

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+case "$1" in /usr/share/gale/download-*) ;; *) exit 1 ;; esac
+case "$2" in
+ xray) /usr/bin/timeout 5 "$1/core" run -test -c /usr/share/gale/selftests/xray-direct.json >/dev/null 2>&1 ;;
+ sing-box) /usr/bin/timeout 5 "$1/core" check -c /usr/share/gale/selftests/sing-box-direct.json >/dev/null 2>&1 ;;
+ *) exit 1 ;;
+esac

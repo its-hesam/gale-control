@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+case "${1:-}" in
+ remove) nft delete table inet gale_recovery >/dev/null 2>&1 || ! nft list table inet gale_recovery >/dev/null 2>&1; exit $? ;;
+ install) ;;
+ *) exit 1 ;;
+esac
+if nft list table inet gale_recovery >/dev/null 2>&1; then exit 1; fi
+nft -f - <<'RULES'
+table inet gale_recovery {
+ chain forward {
+  type filter hook forward priority -5; policy accept;
+  iifname != "br-lan" return
+  ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return
+  ip6 daddr { fc00::/7, fe80::/10, ff00::/8 } return
+  counter drop comment "gale-full-recovery"
+ }
+ chain dns {
+  type filter hook input priority -5; policy accept;
+  iifname "br-lan" meta l4proto { tcp, udp } th dport 53 counter drop comment "gale-recovery-dns"
+ }
+}
+RULES

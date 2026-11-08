@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+case "$1" in /usr/share/gale/managed/xray/*|/usr/share/gale/managed/sing-box/*) ;; *) exit 1 ;; esac
+test "${#2}" = 64
+case "$2" in *[!0-9a-f]*) exit 1 ;; esac
+cd "$1"
+printf '%s  core\n' "$2" | sha256sum -c - >/dev/null

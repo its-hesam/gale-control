@@ -1,0 +1,41 @@
+#!/bin/sh /etc/rc.common
+START=95
+STOP=10
+USE_PROCD=1
+start_service() {
+ umask 077
+ mkdir -p /tmp/gale-connection
+ chmod 700 /tmp/gale-connection
+ test -f /etc/gale/runtime/active || return 0
+ test ! -f /etc/gale/runtime/pending || return 1
+ if [ -f /etc/gale/core-upgrade.pending ]; then
+  ucode -e 'import {readfile} from "fs";let p=json(readfile("/etc/gale/core-upgrade.pending"));if(p.boot_id!=trim(readfile("/proc/sys/kernel/random/boot_id")))exit(1);' || return 1
+ fi
+ read -r binary </etc/gale/runtime/binary || true
+ case "$binary" in /usr/bin/xray|/usr/bin/sing-box|/usr/share/gale/managed/xray/*/core|/usr/share/gale/managed/sing-box/*/core) ;; *) return 1 ;; esac
+ procd_open_instance engine
+ procd_set_param command "$binary" run -c /etc/gale/runtime/config.json
+ procd_set_param respawn 3600 5 3
+ procd_set_param stdout 0
+ procd_set_param stderr 0
+ procd_close_instance
+ count=0
+ if [ -f /etc/gale/runtime/sidecars ]; then read -r count </etc/gale/runtime/sidecars || true; fi
+ case "$count" in 0|2) ;; *) return 1 ;; esac
+ if [ "$count" = 2 ]; then
+  for number in 1 2; do
+   read -r member_binary <"/etc/gale/runtime/binary-$number" || true
+   case "$member_binary" in /usr/bin/xray|/usr/bin/sing-box|/usr/share/gale/managed/xray/*/core|/usr/share/gale/managed/sing-box/*/core) ;; *) return 1 ;; esac
+   procd_open_instance "member-$number"
+   procd_set_param command "$member_binary" run -c "/etc/gale/runtime/sidecar-$number.json"
+   procd_set_param respawn 3600 5 3
+   procd_set_param stdout 0
+   procd_set_param stderr 0
+   procd_close_instance
+  done
+ fi
+ procd_open_instance health
+ procd_set_param command /usr/bin/ucode /usr/share/gale/connection-watch.uc
+ procd_set_param respawn 3600 5 3
+ procd_close_instance
+}

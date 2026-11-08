@@ -1,0 +1,1 @@
+import {test_udp_proxy} from '/usr/share/gale/lib/udp.uc';import {writefile} from 'fs';let dir=ARGV[0],n=ARGV[1],dns=ARGV[2]||'1.1.1.1';if(!match(dir||'',/^\/tmp\/gale-probe-[A-Za-z0-9]+$/)||!(n in ['1','2','3','4','5']))exit(1);let result=test_udp_proxy('dns',17891,dns,()=>writefile(dir+'/udp-sent-'+n,'1'));print(result);exit(result.ok?0:1);

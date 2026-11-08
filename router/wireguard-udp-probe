@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+directory=$1
+case "$directory" in /tmp/gale-probe-*) ;; *) exit 1 ;; esac
+test -f "$directory/config.json"
+core=xray
+if [ -f "$directory/core" ]; then read -r core <"$directory/core" || true; fi
+case "$core" in xray|sing-box) ;; *) exit 1 ;; esac
+binary=/usr/bin/$core
+if [ -f "$directory/binary" ]; then read -r binary <"$directory/binary" || true; fi
+case "$binary" in /usr/bin/xray|/usr/bin/sing-box|/usr/share/gale/managed/xray/*/core|/usr/share/gale/managed/sing-box/*/core) ;; *) exit 1 ;; esac
+/usr/bin/timeout 15 /bin/sh -c 'echo "$$" >"$1/core.pid"; exec "$2" run -c "$1/config.json"' gale "$directory" "$binary" >"$directory/core.log" 2>&1 &
+supervisor_pid=$!
+cleanup() {
+ if [ -f "$directory/core.pid" ]; then
+  read -r core_pid <"$directory/core.pid"
+  case "$core_pid" in ''|*[!0-9]*) ;; *)
+   if [ "$(readlink "/proc/$core_pid/exe" 2>/dev/null)" = "$binary" ]; then
+    if tr '\000' '\n' <"/proc/$core_pid/cmdline" | grep -Fxq "$directory/config.json"; then kill -KILL "$core_pid" 2>/dev/null || true; fi
+   fi ;;
+  esac
+ fi
+ kill -KILL "$supervisor_pid" 2>/dev/null || true
+}
+trap cleanup EXIT HUP INT TERM
+sleep 1
+kill -0 "$supervisor_pid" 2>/dev/null || exit 3
+read -r running_pid <"$directory/core.pid"
+test "$(readlink "/proc/$running_pid/exe" 2>/dev/null)" = "$binary" || exit 3
+tr '\000' '\n' <"/proc/$running_pid/cmdline" | grep -Fxq "$directory/config.json" || exit 3
+/usr/bin/timeout 10 /usr/bin/ucode /usr/share/gale/wireguard-udp-request.uc >"$directory/result.json"

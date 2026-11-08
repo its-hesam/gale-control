@@ -1,0 +1,47 @@
+#!/usr/bin/ucode
+import {routing_state} from '/usr/share/gale/lib/routing-state.uc';
+import {readfile,writefile,open,mkdir,chmod,stat,unlink,popen} from 'fs';
+import {connect} from 'ubus';
+import {load_store} from '/usr/share/gale/lib/store.uc';
+import {connection_request} from '/usr/share/gale/lib/selection.uc';
+if(ARGV[0]=='list'){print({status:{},test_udp:{kind:'String'},connect:{id:'String',auto_connect:'Boolean',mode:'String',pool_scope:'String',pool:'String',policy:'String',automatic:'Boolean',lan:'Boolean'},disconnect:{}});exit(0);}
+if(ARGV[0]!='call')exit(1);
+let root='/tmp/gale-connection';if(!stat(root))mkdir(root);chmod(root,0o700);
+function jsonfile(path){let s=readfile(path);if(!s)return null;try{return json(s);}catch(e){return null;}}
+try{
+ if(ARGV[1]=='status'){
+  let active=jsonfile('/etc/gale/runtime/active'),health=jsonfile(root+'/health.json'),operation=jsonfile(root+'/operation.json');
+  let bus=connect(),service=bus?.call('service','list',{name:'gale-tunnel'}),running=!!service?.['gale-tunnel']?.instances?.engine?.running;
+  if(operation?.state in ['queued','preparing','starting'] && time()-operation.updated_at>60)operation={state:'interrupted',updated_at:time()};
+  if(stat('/etc/gale/runtime/pending'))operation={state:'recovery_required',error:'INCOMPLETE_RUNTIME_COMMIT',updated_at:time()};
+  if(operation?.state=='running_unverified'&&running&&health?.ok&&health.profile_id==active?.profile_id&&health.checked_at>=active.started_at&&time()-health.checked_at<60)operation={...operation,state:'connected_verified'};
+  let trial=jsonfile('/etc/gale/routing-test/armed');
+  let routing=routing_state(bus);print({schema_version:1,routing:routing,network_options:jsonfile('/etc/gale/network-options.json'),boot_capable:!!stat('/usr/share/gale/network-guard-install'),udp:jsonfile(root+'/udp.json'),active:active,running:running,health:health,operation:operation,lan:jsonfile(root+'/lan.json'),scope:trial?.session?'all_LAN_session':'loopback_proxy_only',endpoint:'127.0.0.1:17890',network_routing_active:routing.active,auto_connect:system(['/etc/init.d/gale-tunnel','enabled'],2000)==0});exit(0);
+ }
+ if(stat('/etc/gale/recovery/pending.json')&&getenv('GALE_RECOVERY_INTERNAL')!='1')die('SYSTEM_RECOVERY_RUNNING');
+ if(stat('/etc/gale/core-upgrade.pending'))die('CORE_UPGRADE_RUNNING');
+ let guard=open(root+'/control.lock','a',0o600);if(!guard||!guard.lock('xn'))die('CONNECTION_BUSY');
+ if(ARGV[1]=='test_udp'){
+  let request=json(readfile('/dev/stdin')||'{}'),kind=request.kind||'dns';if(!(kind in ['dns','ntp']))die('BAD_UDP_TEST_KIND');
+  if(!stat('/etc/gale/runtime/active'))die('CONNECTION_REQUIRED');
+  let check=open(root+'/udp.lock','a',0o600);if(!check||!check.lock('xn'))die('UDP_TEST_BUSY');
+  let previous=jsonfile(root+'/udp.json');if(previous?.state=='queued'&&time()-(previous.tested_at||0)<20)die('UDP_TEST_BUSY');
+  if(previous?.tested_at&&time()-previous.tested_at<10)die('UDP_TEST_COOLDOWN');
+  writefile(root+'/udp-kind',kind);
+  writefile(root+'/udp.json',sprintf('%J',{state:'queued',tested_at:time()}));check.close();guard.close();let child=popen('/usr/share/gale/connection-udp-launch','r');if(!child||child.close()!=0)die('UDP_TEST_LAUNCH_FAILED');print({schema_version:1,state:'queued'});exit(0);
+ }
+ let worker=open(root+'/worker.lock','a',0o600);if(!worker||!worker.lock('xn'))die('CONNECTION_BUSY');
+ if(ARGV[1]=='disconnect'){
+  if((stat('/etc/gale/network-options.json')||stat('/usr/share/nftables.d/chain-pre/forward/40-gale-guard.nft'))&&system(['/usr/share/gale/network-guard-remove'],20000)!=0)die('PERSISTENT_GUARD_REMOVE_FAILED');
+  if(stat('/etc/gale/routing-test/armed')&&system(['/usr/share/gale/routing-rollback'],15000)!=0)die('LAN_ROLLBACK_FAILED');
+  unlink(root+'/lan.json');unlink('/etc/gale/runtime/active');system(['/etc/init.d/gale-tunnel','disable'],3000);system(['/etc/init.d/gale-tunnel','stop'],8000);
+  unlink(root+'/health.json');unlink(root+'/udp.json');writefile(root+'/operation.json',sprintf('%J',{state:'stopped',updated_at:time()}));print({schema_version:1,state:'stopped',network_changed:false});exit(0);
+ }
+ if(ARGV[1]!='connect')die('UNKNOWN_METHOD');
+ let input=json(readfile('/dev/stdin')||'{}'),req=connection_request(input,load_store());req.lan=input.lan===true;
+ if(req.lan&&req.auto_connect&&!stat('/usr/share/gale/network-guard-install'))die('LAN_BOOT_FEATURE_NOT_INSTALLED');
+ writefile(root+'/request.json',sprintf('%J',req));chmod(root+'/request.json',0o600);
+ writefile(root+'/operation.json',sprintf('%J',{state:'queued',updated_at:time()}));
+ worker.close();guard.close();let child=popen('/usr/share/gale/connection-launch','r');if(!child||child.close()!=0)die('CONNECTION_LAUNCH_FAILED');
+ print({schema_version:1,state:'queued',scope:'loopback_proxy_only',network_changed:false});
+}catch(e){print({schema_version:1,error:match(e.message||'',/^[A-Z0-9_]+$/)?e.message:'CONNECTION_OPERATION_FAILED'});}

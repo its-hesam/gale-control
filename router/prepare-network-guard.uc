@@ -1,0 +1,2 @@
+import {writefile,mkdir,stat,chmod,readfile} from 'fs';import {network_guard_rules} from '/usr/share/gale/lib/network-guard.uc';
+let dir='/etc/gale/network-stage';if(!stat(dir))mkdir(dir);chmod(dir,0o700);let policy=readfile(ARGV[0]=='next'?'/etc/gale/routing-next/draft.json':'/etc/gale/routing-test/draft.json');if(!policy)die('ACTIVE_POLICY_REQUIRED');let rules=network_guard_rules(json(policy));for(let name in ['forward','input']){writefile(dir+'/'+name+'.nft',rules[name]);chmod(dir+'/'+name+'.nft',0o600);}print({prepared:true,network_changed:false});

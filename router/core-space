@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+# Budget archive + extracted binary + previous executable, outside RAM-backed /tmp.
+df -k /usr/share/gale | awk 'NR==2 {exit !($4 >= 250000)}'

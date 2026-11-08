@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.private/
+*.log
+
+# Local device evidence, screenshots, installation receipts and private audits.
+docs/*
+!docs/public/
+!docs/assets/
+!docs/acceptance-2026-11-08.json
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.ovpn
+*.conf.backup

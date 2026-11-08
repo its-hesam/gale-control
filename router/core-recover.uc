@@ -1,0 +1,1 @@
+import {readfile,unlink} from 'fs';import {recover_core} from '/usr/share/gale/lib/core-recovery.uc';let raw=readfile('/etc/gale/core-upgrade.pending');if(raw){let snapshot=json(raw);recover_core(snapshot);unlink('/etc/gale/core-upgrade.pending');}

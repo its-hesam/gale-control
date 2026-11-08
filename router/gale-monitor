@@ -1,0 +1,11 @@
+#!/usr/bin/ucode
+import {readfile} from 'fs';import {connect} from 'ubus';
+import {event_log} from '/usr/share/gale/lib/events.uc';
+import {core_state} from '/usr/share/gale/lib/cores.uc';
+if(ARGV[0]=='list'){print({history:{limit:'Integer'},report:{}});exit(0);}if(ARGV[0]!='call')exit(1);
+try{
+ let samples;try{samples=json(readfile('/tmp/gale-monitor.json')||'[]');}catch(e){samples=[];}
+ if(ARGV[1]=='history'){let req=json(readfile('/dev/stdin')||'{}'),limit=req.limit==null?2880:req.limit;if(type(limit)!='int'||limit<1||limit>2880)die('BAD_HISTORY_LIMIT');print({schema_version:1,samples:slice(samples,-limit),interval_seconds:30,retention:'RAM_last_2880'});exit(0);}
+ if(ARGV[1]=='report'){let b=connect(),d=b.call('gale-status','status',{}),c=b.call('gale-connection','status',{});print({schema_version:1,created_at:time(),scope:'redacted_diagnostics',board:d?.board,system:{uptime:d?.system?.uptime,memory:d?.system?.memory,load:d?.system?.load},cores:core_state(),connection:{running:!!c?.running,healthy:!!c?.health?.ok,mode:c?.active?.mode,protocol:c?.active?.protocol},routing:c?.routing,samples:samples,events:event_log(),omitted:['credentials','subscription_urls','endpoints','device_addresses','configuration','raw_engine_logs']});exit(0);}
+ die('UNKNOWN_METHOD');
+}catch(e){print({schema_version:1,error:'MONITORING_READ_FAILED'});}
