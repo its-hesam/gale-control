@@ -36,8 +36,19 @@ function nativeConfig(target){
  const r=spawnSync('ssh',['-G',target],{encoding:'utf8',timeout:10000});if(r.error)throw Error('OpenSSH is required. Install the OpenSSH client and retry.');if(r.status!==0)throw Error('Could not read SSH client configuration.');
  const result={};for(const line of r.stdout.split(/\r?\n/)){const at=line.indexOf(' ');if(at>0)result[line.slice(0,at)]=line.slice(at+1).trim();}return result;
 }
+export async function execProcess(file,args,input,timeout=60000,{onStdout,onStderr}={}){
+ return await new Promise((resolve,reject)=>{
+  const child=spawn(file,args,{stdio:['pipe','pipe','pipe'],windowsHide:true});let stdout=[],stderr=[],bytes=0,settled=false;
+  function fail(message){if(settled)return;settled=true;clearTimeout(timer);child.kill();reject(Error(message));}
+  const timer=setTimeout(()=>fail('SSH command timed out.'),timeout);
+  function collect(chunk,list,callback){bytes+=chunk.length;if(bytes>8*1024*1024){fail('SSH output exceeded the limit.');return;}list.push(chunk);try{callback?.(chunk);}catch{fail('SSH output handler failed.');}}
+  child.stdout.on('data',chunk=>collect(chunk,stdout,onStdout));child.stderr.on('data',chunk=>collect(chunk,stderr,onStderr));
+  child.once('error',error=>fail(error.message));child.stdin.on('error',()=>{});
+  child.once('close',code=>{if(settled)return;settled=true;clearTimeout(timer);if(code!==0)reject(Error(Buffer.concat(stderr).toString().trim()||'SSH command failed (exit '+code+').'));else resolve(Buffer.concat(stdout).toString());});child.stdin.end(input??'');
+ });
+}
 function nativeTransport(target){
- return {mode:'openssh',async exec(command,input,timeout=60000){const r=spawnSync('ssh',['-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=5',target,command],{input,encoding:Buffer.isBuffer(input)?undefined:'utf8',timeout,maxBuffer:8*1024*1024});if(r.status!==0)throw Error(r.error?.code==='ETIMEDOUT'?'SSH command timed out.':r.stderr?.toString().trim()||'SSH command failed.');return r.stdout.toString();},
+ return {mode:'openssh',async exec(command,input,timeout=60000,output={}){return await execProcess('ssh',['-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=5','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=3',target,command],input,timeout,output);},
   async hold(command){const child=spawn('ssh',['-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',target,command],{stdio:['pipe','pipe','pipe']});return await holdChannel(child.stdout,child.stdin,child,'exit',()=>child.kill());},async close(){}};
 }
 async function holdChannel(stdout,stdin,events,event,abort){
@@ -72,7 +83,7 @@ export async function connectSSH(target,{auth='auto',port,knownHostsFiles,passwo
    authHandler(methods,partial,done){if(first){first=false;done({type:'none',username:'root'});return;}if(!methods?.includes('password')||attempts>=3){done(false);return;}attempts++;Promise.resolve(passwordPrompt(`SSH password for ${target}${attempts>1?' (retry '+attempts+'/3)':''}: `)).then(password=>done({type:'password',username:'root',password}),error=>{reason=error.message;done(false);});}
   });
  }).catch(error=>{client.destroy();throw error;});
- return {mode:'password',async exec(command,input,timeout=60000){return await new Promise((resolve,reject)=>{let timer;client.exec(command,(error,stream)=>{if(error){reject(Error('SSH channel could not open: '+error.message));return;}let stdout=[],stderr=[],bytes=0,settled=false;function fail(message){if(settled)return;settled=true;clearTimeout(timer);stream.close();reject(Error(message));}timer=setTimeout(()=>fail('SSH command timed out.'),timeout);stream.on('data',chunk=>{bytes+=chunk.length;if(bytes>8*1024*1024)fail('SSH output exceeded the limit.');else stdout.push(chunk);});stream.stderr.on('data',chunk=>{bytes+=chunk.length;if(bytes>8*1024*1024)fail('SSH output exceeded the limit.');else stderr.push(chunk);});stream.once('error',()=>fail('SSH command channel failed.'));stream.once('close',code=>{if(settled)return;settled=true;clearTimeout(timer);if(code!==0)reject(Error(Buffer.concat(stderr).toString().trim()||'SSH command failed (exit '+code+').'));else resolve(Buffer.concat(stdout).toString());});stream.end(input??'');});});},
+ return {mode:'password',async exec(command,input,timeout=60000,{onStdout,onStderr}={}){return await new Promise((resolve,reject)=>{let timer;client.exec(command,(error,stream)=>{if(error){reject(Error('SSH channel could not open: '+error.message));return;}let stdout=[],stderr=[],bytes=0,settled=false;function fail(message){if(settled)return;settled=true;clearTimeout(timer);stream.close();reject(Error(message));}timer=setTimeout(()=>fail('SSH command timed out.'),timeout);stream.on('data',chunk=>{bytes+=chunk.length;if(bytes>8*1024*1024)fail('SSH output exceeded the limit.');else {stdout.push(chunk);try{onStdout?.(chunk);}catch{fail('SSH output handler failed.');}}});stream.stderr.on('data',chunk=>{bytes+=chunk.length;if(bytes>8*1024*1024)fail('SSH output exceeded the limit.');else {stderr.push(chunk);try{onStderr?.(chunk);}catch{fail('SSH output handler failed.');}}});stream.once('error',()=>fail('SSH command channel failed.'));stream.once('close',code=>{if(settled)return;settled=true;clearTimeout(timer);if(code!==0)reject(Error(Buffer.concat(stderr).toString().trim()||'SSH command failed (exit '+code+').'));else resolve(Buffer.concat(stdout).toString());});stream.end(input??'');});});},
   async hold(command){const stream=await new Promise((resolve,reject)=>client.exec(command,(error,channel)=>error?reject(error):resolve(channel)));return await holdChannel(stream,stream,stream,'close',()=>stream.close());},
   async close(){if(closed)return;await new Promise(resolve=>{const timer=setTimeout(()=>{client.destroy();resolve();},2000);client.once('close',()=>{clearTimeout(timer);resolve();});client.end();});}
  };

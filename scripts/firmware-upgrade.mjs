@@ -1,3 +1,4 @@
+import {runStage} from './command-progress.mjs';
 import {createInterface} from 'node:readline/promises';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -10,14 +11,10 @@ export function missingFirmwarePackages(output){
  return packages;
 }
 function checkedScript(commands){return `set -eu
-umask 077
-log=$(mktemp /tmp/gale-upgrade-check.XXXXXX)
-trap 'rm -f "$log"' EXIT
 run_checked() {
- if "$@" >"$log" 2>&1; then cat "$log"; else
+ if "$@" 2>&1; then :; else
   status=$?
-  echo 'Firmware preparation stopped. No flash was started. Diagnostic output:' >&2
-  cat "$log" >&2
+  echo 'Firmware preparation stopped. No flash was started.' >&2
   exit "$status"
  fi
 }
@@ -25,13 +22,13 @@ ${commands}
 `;}
 export async function prepareFirmware({transport,target,confirm=confirmFirmware,sleep=ms=>new Promise(r=>setTimeout(r,ms))}){
  if(!/^25\.12\.\d+$/.test(target))throw Error('Invalid firmware target.');
- await transport.exec('sh',`set -eu\nif ! command -v owut >/dev/null; then opkg update; opkg install owut; fi\n`);
+ await runStage(transport,{label:'Preparing upgrade tools',script:`set -eu\nif ! command -v owut >/dev/null; then opkg update; opkg install owut; fi\n`});
  let omitted=[],approved=false;
  for(let attempt=0;attempt<2;attempt++){
   const removal=omitted.length?' --remove '+omitted.join(','):'';
   try{
    for(let retry=0;;retry++){
-    try{console.log(await transport.exec('sh',checkedScript(`run_checked owut check --verbose --version-to ${target}${removal}`),300000));break;}
+    try{await runStage(transport,{label:'Checking firmware compatibility',script:checkedScript(`run_checked owut check --verbose --version-to ${target}${removal}`),timeout:300000});break;}
     catch(error){
      // Retry only read-only checks and only recognized transient transport failures.
      if(retry>=2||!/Failed to connect|Response status \(null\)|uclient error code=2|Connection timed out/i.test(error.message))throw error;
@@ -45,9 +42,9 @@ export async function prepareFirmware({transport,target,confirm=confirmFirmware,
    if(!await confirm('The following legacy VPN packages are unavailable in the target firmware:\n'+missing.join(', ')+'\nOmit these packages from the NEW firmware? They are NOT uninstalled now. Passwall2 and features depending on these packages will not be available after upgrade. Configuration backup is already saved. Decline to stop without flashing.'))throw Error('Firmware upgrade cancelled; no packages uninstalled and no flash started.');
    omitted=missing;approved=true;continue;
   }
-  console.log(await transport.exec('sh',checkedScript(`run_checked owut download --version-to ${target}${removal} --image /tmp/gale-firmware.bin
-run_checked owut verify --image /tmp/gale-firmware.bin
-run_checked sysupgrade -T /tmp/gale-firmware.bin`),1800000));
+  await runStage(transport,{label:'Building and downloading firmware (server queue may take several minutes)',script:checkedScript(`run_checked owut download --version-to ${target}${removal} --image /tmp/gale-firmware.bin`),timeout:1800000});
+  await runStage(transport,{label:'Verifying downloaded firmware',script:checkedScript('run_checked owut verify --image /tmp/gale-firmware.bin'),timeout:300000});
+  await runStage(transport,{label:'Device image compatibility test',script:checkedScript('run_checked sysupgrade -T /tmp/gale-firmware.bin'),timeout:300000});
   return;
  }
  throw Error('Firmware preparation did not pass; no flash started.');
@@ -109,6 +106,7 @@ echo 'Firmware flash scheduled. Waiting for reboot...'
 `);
  await transport.close();
  for(let i=0;i<attempts;i++){
+  console.log(`[Router reboot] Waiting for verified reconnection | poll ${i+1}/${attempts} | elapsed at least ${i*10}s`);
   await sleep(10000);let next;
   try{next=await reconnect();const after=JSON.parse(await next.exec('ubus call system board'));if(firmwareStatus(after)==='supported'&&after.board_name===board.board_name&&after.release.target===board.release.target){console.log('Firmware upgrade verified. Continuing Gale installation.');return next;}}
   catch(e){if(next)await next.close();next=null;if(/HOST IDENTIFICATION HAS CHANGED|host key|fingerprint|cancelled/i.test(e.message))throw e;}

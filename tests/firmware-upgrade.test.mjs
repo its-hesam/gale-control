@@ -23,10 +23,10 @@ test('declining upgrade never installs tools, backs up or flashes',async()=>{
 test('firmware path saves backup before validating and flashing, then verifies returned device',async()=>{
  const f=fixture();assert.equal(await ensureFirmware(f.options),f.next);assert(f.stats().saved);assert.equal(f.stats().prompts,1);
  const backup=f.calls.findIndex(c=>c.includes('sysupgrade -b')),validate=f.calls.findIndex(c=>c.includes('owut download')),flash=f.calls.findIndex(c=>c.includes('nohup'));
- assert(backup<validate&&validate<flash);assert(f.calls[validate].includes('sysupgrade -T'));assert(f.calls.findIndex(c=>c.includes('owut check --verbose'))<validate);assert(f.calls[validate].includes('cat "$log" >&2')); assert(!f.calls.some(c=>/sysupgrade -[Fn]|--force/.test(c)));
+ assert(backup<validate&&validate<flash);assert(f.calls.some(c=>c.includes('sysupgrade -T')));assert(f.calls.findIndex(c=>c.includes('owut check --verbose'))<validate);assert(f.calls[validate].includes('if "$@" 2>&1')); assert(!f.calls.some(c=>/sysupgrade -[Fn]|--force/.test(c)));
 });
 test('failed image validation and failed backup both stop before flash',async()=>{
- for(const fail of ['owut check','owut download','base64 /tmp']){const f=fixture({fail});await assert.rejects(ensureFirmware(f.options),/controlled/);assert(!f.calls.some(c=>c.includes('nohup')));}
+ for(const fail of ['owut check','owut download','owut verify','sysupgrade -T','base64 /tmp']){const f=fixture({fail});await assert.rejects(ensureFirmware(f.options),/controlled/);assert(!f.calls.some(c=>c.includes('nohup')));}
  const f=fixture();await assert.rejects(ensureFirmware({...f.options,saveBackup:async()=>{throw Error('disk full');}}),/disk full/);assert(!f.calls.some(c=>c.includes('owut download')));
 });
 test('wrong post-reboot device or firmware never resumes installation',async()=>{
