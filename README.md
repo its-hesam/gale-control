@@ -24,6 +24,17 @@
 > `br-lan` and LAN `192.168.10.1/24`. Other layouts/architectures are not yet
 > supported by the guided installer. It never changes your LAN to force a match.
 
+## 🧭 Provider and testing workspaces
+
+Browse four built-in public GitHub catalogs or add a repository with its own branch
+and folder layout. Download Surfshark's official OpenVPN files, attach manual-service
+credentials privately, or import Proton/Surfshark account exports. All imports stay
+separate from activating a network connection. Main-account login and automatic
+account WireGuard generation are not implemented; IKEv2/L2TP remain archive-only.
+
+[Provider capabilities and limits](docs/public/providers.md) ·
+[Benchmark & Core Manager](docs/public/benchmark-core-manager.md)
+
 ## 🆕 Smart network controls
 
 - **Modern Smart Routing:** independent 2.4 / 5 GHz VPN, direct or blocked routes.
@@ -84,7 +95,7 @@ OpenWrt configuration files stay unchanged. `--install-deps` installs prerequisi
 from the router's configured official `apk` feeds; omit it if dependencies already
 exist. There is no `curl | sh` shortcut and no bundled private configuration.
 
-**After installation:** download the required managed cores in **Updates**, import
+**After installation:** download the required managed cores in **Core Manager**, import
 your own subscription, validate/test a server, and connect explicitly in **VPN Manager**.
 The [complete installation guide](docs/public/installation.md) covers prerequisites,
 managed versions, first connection, updates, recovery and troubleshooting.
@@ -198,7 +209,7 @@ routine installation steps. Some older tools use fixed test-router defaults.
 
 ## 🔐 Privacy & recovery
 
-Fresh installations contain no provider links or private keys. Credentials live
+Fresh installations contain public provider catalog templates, but no account credentials, personal subscriptions or private keys. Credentials live
 on the router; browser session tokens stay in memory. Theme, motion preferences,
 favorites and recent IDs are local browser preferences.
 

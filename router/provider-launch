@@ -1,0 +1,2 @@
+#!/bin/sh
+/usr/bin/ucode /usr/share/gale/provider-worker.uc </dev/null >/dev/null 2>&1 &

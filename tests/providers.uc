@@ -1,0 +1,13 @@
+import {provider_templates,provider_map,public_provider,repository_files,validate_repository,provider_extract,provider_credentials,restore_provider_data} from '/usr/share/gale/lib/providers.uc';
+let passed=0;function reject(fn,code){let error=null;try{fn();}catch(e){error=e.message;}assert(error==code,'Expected '+code+', received '+error);passed++;}
+reject(()=>validate_repository({repository:'../../etc'}),'BAD_GITHUB_REPOSITORY');reject(()=>validate_repository({repository:'owner/repo',ref:'../main'}),'BAD_REPOSITORY_LAYOUT');reject(()=>provider_credentials({username:'u',password:'bad\nvalue'}),'BAD_SERVICE_CREDENTIALS');
+assert(length(keys(provider_map({profiles:{},sources:{}})))==6);passed++;
+let config=provider_templates[1],files=repository_files(config,{tree:[{type:'blob',path:'ss.txt',size:20},{type:'blob',path:'countries/de.txt',size:20},{type:'blob',path:'countries/fr.txt',size:0},{type:'blob',path:'mixed.txt',size:1048577},{type:'blob',path:'telegram.txt',size:40},{type:'blob',mode:'120000',path:'link.txt',size:20}]});
+assert(length(files)==4);passed++;assert(files[0].protocol_hint=='shadowsocks'&&files[0].country_hint==null);passed++;assert(files[1].country_hint=='DE');passed++;assert(!files[2].available&&!files[3].available);passed++;
+let openray=repository_files(provider_templates[3],{tree:[{type:'blob',path:'output/country/US.txt',size:20},{type:'blob',path:'docs/evidence/results.json',size:20},{type:'blob',path:'output/kind/ikev2.txt',size:20}]});assert(length(openray)==2&&!openray[1].engine_available);passed++;
+reject(()=>repository_files(config,{truncated:true,tree:[]}),'REPOSITORY_TREE_TOO_LARGE');
+let link='vless://11111111-1111-4111-8111-111111111111@example.com:443?security=tls&type=ws#Fixture';let parsed=provider_extract(link+'\n'+link,1);assert(length(parsed.profiles)==1&&parsed.sampled&&parsed.profiles[0].enabled===false);passed++;
+reject(()=>provider_extract(link,0),'BAD_PROVIDER_LIMIT');reject(()=>restore_provider_data({providers:{bad:{repository:'owner/repo'}},profiles:{}},{profiles:{}}),'BACKUP_PROVIDER_ID');
+let credential={username:'fixture-user',password:'fixture-service-password'},redacted=public_provider({...provider_templates[4],credentials:credential});assert(redacted.credentials_saved&&index(sprintf('%J',redacted),credential.password)<0&&index(sprintf('%J',redacted),credential.username)<0);passed++;
+let restored={profiles:{}};restore_provider_data({providers:{surfshark:{...provider_templates[4],credentials:credential}},profiles:{}},restored);assert(restored.providers.surfshark.credentials.password==credential.password);passed++;
+print({passed:passed,scope:'provider_catalog_classification_budgets_credentials_and_backup'});

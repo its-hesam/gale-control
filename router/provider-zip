@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+ulimit -f 2048
+case "$1" in
+ list) exec /usr/bin/unzip -l /tmp/gale-providers/surfshark.zip ;;
+ read)
+  printf '%s' "$2" | grep -Eq '^[a-z0-9-]+\.prod\.surfshark\.com_(tcp|udp)\.ovpn$'
+  exec /usr/bin/unzip -p /tmp/gale-providers/surfshark.zip "$2"
+  ;;
+ *) exit 1 ;;
+esac

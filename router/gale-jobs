@@ -1,7 +1,7 @@
 #!/usr/bin/ucode
 import { open, stat, mkdir, chmod, readfile, writefile, unlink, popen } from 'fs';
 import { load_store, lock_store } from '/usr/share/gale/lib/store.uc';
-if(ARGV[0]=='list'){print({status:{},start:{kind:'String',limit:'Integer',id:'String'},cancel:{}});exit(0);}
+if(ARGV[0]=='list'){print({status:{},start:{kind:'String',limit:'Integer',id:'String',ids:'String'},cancel:{}});exit(0);}
 if(ARGV[0]!='call')exit(1);
 let dir='/tmp/gale-batch';
 if(!stat(dir))mkdir(dir);chmod(dir,0o700);
@@ -21,7 +21,8 @@ try{
  if(type(limit)!='int' || limit<1 || limit>50)die('BAD_JOB_LIMIT');
  if(request.kind=='performance'&&limit>5)die('PERFORMANCE_LIMIT_FIVE');
  let lock=lock_store(),store=load_store(),ids=[];
- if(request.id!=null){
+ if(request.ids!=null){let requested;try{requested=json(request.ids);}catch(e){die('BAD_JOB_IDS');}if(type(requested)!='array'||length(requested)<1||length(requested)>limit)die('BAD_JOB_IDS');let seen={};for(let id in requested){if(type(id)!='string'||!exists(store.profiles,id)||seen[id])die('BAD_PROFILE');if(request.kind!='validate'&&store.profiles[id].native_status!='passed')die('NATIVE_VALIDATION_REQUIRED');seen[id]=true;push(ids,id);}}
+ else if(request.id!=null){
   if(type(request.id)!='string' || !exists(store.profiles,request.id))die('BAD_PROFILE');
   if(request.kind in ['benchmark','performance'] && store.profiles[request.id].native_status!='passed')die('NATIVE_VALIDATION_REQUIRED');
   ids=[request.id];

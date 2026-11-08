@@ -5,7 +5,7 @@
 Use **Settings → Gale application updates → Check for updates**. Stable GitHub
 releases from [its-hesam/gale-control](https://github.com/its-hesam/gale-control/releases)
 are offered when their semantic version is newer than the installed application.
-Choose **Download & install** to start. VPN cores are managed separately in Updates.
+Choose **Download & install** to start. VPN cores are managed separately in Core Manager.
 
 The router downloads `gale-control.tar.gz` from the fixed repository and verifies
 its size and the SHA-256 digest supplied by GitHub's release API. It rejects unsafe

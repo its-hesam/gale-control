@@ -57,7 +57,7 @@ a factory-clean install has not yet had a separate factory-reset acceptance run.
 
 ## First connection
 
-1. In **Updates**, download and verify the managed core versions you need.
+1. In **Core Manager**, download and verify the managed core versions you need.
    Tested versions are Xray `26.9.30`, sing-box `1.14.4` and the separate Xray
    compatibility executable `25.12.8`.
 2. Offline-activate your primary cores while disconnected. Stage Xray `25.12.8`

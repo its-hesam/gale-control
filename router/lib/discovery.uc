@@ -10,6 +10,7 @@ export function discovery_report(store,now){
   let successes=0,total=0;for(let h in p.test_history||[]){if(h.network_attempted!==false&&now-h.time>=0&&now-h.time<=86400){total++;if(h.ok)successes++;}}
   let recommendable=!p.source_retired&&p.native_status=='passed'&&fresh&&test.ok&&type(test.latency_ms) in ['int','double']&&test.latency_ms>=0;
   let trust='manual';for(let source in p.sources||[])if(store.sources[source]){trust=store.sources[source].public_untrusted?'untrusted':'owner_selected';if(trust=='untrusted')break;}
+  for(let membership in values(p.provider_memberships||{}))if(membership.trust=='untrusted')trust='untrusted';
   let latency_score=recommendable?100/(100+test.latency_ms):0,reliability=(successes+1)/(total+2),score=recommendable?100*(0.6*latency_score+0.4*reliability):null;
   push(candidates,{...metadata(p),fresh:fresh,recommendable:recommendable,score:score,confidence:total>=5?'measured':total?'limited':'unknown',source_retired:!!p.source_retired,measured_successes:successes,measured_attempts:total,source_trust:trust});
  }
