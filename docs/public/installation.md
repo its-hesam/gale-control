@@ -206,3 +206,11 @@ If owut reports a complete list of packages missing in the target version, the i
 SSH password and OpenSSH key modes stream owut output as it arrives. Each preparation stage shows its name, elapsed time and time limit; a heartbeat appears every 15 seconds even if the build server is silent. Server queue/build status and download percentages are shown when owut supplies them. The installer does not invent an overall percentage or completion estimate.
 
 Compatibility checking, firmware building/downloading, verification and the final device image test have separate stages. The build/download limit is 30 minutes; the other preparation stages have five-minute limits. Timeout errors identify the stage and elapsed time. No flashing is scheduled unless all preparation stages pass. A timed-out remote build may still be running: inspect it before starting another installation. Reboot reconnection polls are also displayed. This visibility improvement does not guarantee that an unreachable or overloaded server will finish successfully.
+
+### Dependency downloads with broken IPv6 (0.3.7+)
+
+Dependency installation uses IPv4 for the wget subprocesses started by OpenWrt's apk downloader. A private temporary wget wrapper forwards the original arguments to uclient-fetch with -4, and is exposed only through the installation process PATH. Cleanup removes the wrapper on normal completion and command failure. No system wget replacement, network/firewall change, TLS bypass or package trust override is used. IPv4 access to the configured repositories is required.
+
+The dependency stage streams live output and has a 15-minute limit. After apk add, the installer runs both core version commands. If a prior interrupted extraction left a core executable unusable, it attempts a targeted apk fix and requires the version check to pass before continuing. This does not automatically activate VPN routing. After an SSH timeout, inspect running apk processes before retrying.
+
+Implementation references: [apk wget backend](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/src/io_url_wget.c), [PATH-based subprocess launch](https://github.com/alpinelinux/apk-tools/blob/v3.0.5/src/process.c).

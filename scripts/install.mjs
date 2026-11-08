@@ -1,3 +1,4 @@
+import {installDependencies} from './install-dependencies.mjs';
 import {ensureFirmware} from './firmware-upgrade.mjs';
 import {connectSSH} from './ssh-transport.mjs';
 import {publishRelease} from './publish-release.mjs';
@@ -29,8 +30,7 @@ echo 'Platform and LAN preflight passed.'
 `;
 console.log((await ssh('sh',platform)).trim());
 if(args.includes('--install-deps')&&!args.includes('--check')){
- const packages='ucode ucode-mod-fs ucode-mod-digest ucode-mod-socket ucode-mod-ubus ucode-mod-uci rpcd rpcd-mod-ucode uhttpd uhttpd-mod-ubus curl ca-bundle lua lyaml ip-full nftables-json kmod-nft-tproxy kmod-nft-socket unzip xray-core sing-box';
- console.log((await ssh('sh',`set -eu\nif command -v apk >/dev/null; then apk update; apk add ${packages}; else echo 'This installer expects apk on OpenWrt25.12.' >&2; exit 1; fi\n`)).trim());
+ await installDependencies(transport);
 }
 console.log((await ssh('sh',`set -eu
 for tool in curl lua ip nft tar sha256sum unzip timeout; do command -v "$tool" >/dev/null || { echo "Missing $tool; rerun with --install-deps or install documented dependencies." >&2; exit 1; }; done
