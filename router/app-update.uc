@@ -17,7 +17,7 @@ try{
  state('verifying');run(['/bin/gzip','-dc',root+'/archive'],root+'/archive.tar',15000);validate_app_tar(readfile(root+'/archive.tar'));let id='app-'+replace(version,/\./g,'-')+'-'+time(),base='/usr/share/gale/releases/'+id;mkdir(base);chmod(base,0o700);
  run(['/bin/tar','-xf',root+'/archive.tar','-C',base],root+'/result',15000);let info=json(readfile(base+'/release-info.json')||'null');if(info?.version!=version||info?.updater_schema!=1||!match(info?.id||'',/^r[0-9]{17}$/))die('APP_PACKAGE_VERSION_MISMATCH');
  // Packages embed their immutable build directory. Use it as the final path.
- let final='/usr/share/gale/releases/'+info.id;if(stat(final)||!rename(base,final))die('APP_PACKAGE_ALREADY_PRESENT');base=final;id=info.id;
+ let final='/usr/share/gale/releases/'+info.id;if(stat(final)){if(sha256(readfile(final+'/SHA256SUMS')||'')!=sha256(readfile(base+'/SHA256SUMS')||''))die('APP_PACKAGE_ID_COLLISION');}else if(!rename(base,final))die('APP_PACKAGE_STAGE_FAILED');base=final;id=info.id;chmod(base,0o755);
  let manifest=readfile(base+'/SHA256SUMS');if(!manifest||length(manifest)>131072)die('APP_MANIFEST_INVALID');for(let line in split(trim(manifest),'\n'))if(!match(line,/^[a-f0-9]{64}  [A-Za-z0-9_.\/-]+$/)||index(split(split(line,'  ')[1],'/'),'..')>=0||substr(split(line,'  ')[1],0,1)=='/')die('APP_MANIFEST_PATH');
  run(['/bin/sh','-c','cd '+base+' && sha256sum -c SHA256SUMS >/dev/null'],root+'/result',30000);let bindings=json(readfile(base+'/bindings.json'));validate_app_bindings(bindings,base);
  for(let dir in ['helpers','plugins','init'])run(['/bin/chmod','-R','755',base+'/'+dir],root+'/result',5000);

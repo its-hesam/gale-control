@@ -24,3 +24,5 @@ and recovery pointers, not a signed OpenWrt package feed.
 Only one application should manage transparent routing at a time. Installation
 does not uninstall or disable PassWall, v2rayA or other applications. The installer
 does not flash firmware and does not enable VPN routing by itself.
+
+Application updates accept only stable versioned assets from its-hesam/gale-control. GitHub release asset SHA-256 and the internal file manifest are checked over HTTPS; independent publisher signatures are not verified. Wi-Fi direct routes and enabled Iran GeoIP exceptions intentionally bypass the VPN guard while classification is active. Wi-Fi band routing does not isolate clients on the shared LAN.
