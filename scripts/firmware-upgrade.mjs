@@ -2,6 +2,57 @@ import {createInterface} from 'node:readline/promises';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 
+const optionalLegacyPackages=new Set(['chinadns-ng','dns2socks','geoview','ipt2socks','luci-app-passwall2','tcping']);
+export function missingFirmwarePackages(output){
+ const packages=[...output.matchAll(/^\s*([a-z0-9][a-z0-9+_.-]*)\s+\S+\s+missing to-version\s*$/gm)].map(m=>m[1]);
+ const count=output.match(/^\s*(\d+) packages missing in target version, cannot upgrade\s*$/m);
+ if(!count||Number(count[1])!==packages.length||new Set(packages).size!==packages.length)return [];
+ return packages;
+}
+function checkedScript(commands){return `set -eu
+umask 077
+log=$(mktemp /tmp/gale-upgrade-check.XXXXXX)
+trap 'rm -f "$log"' EXIT
+run_checked() {
+ if "$@" >"$log" 2>&1; then cat "$log"; else
+  status=$?
+  echo 'Firmware preparation stopped. No flash was started. Diagnostic output:' >&2
+  cat "$log" >&2
+  exit "$status"
+ fi
+}
+${commands}
+`;}
+export async function prepareFirmware({transport,target,confirm=confirmFirmware,sleep=ms=>new Promise(r=>setTimeout(r,ms))}){
+ if(!/^25\.12\.\d+$/.test(target))throw Error('Invalid firmware target.');
+ await transport.exec('sh',`set -eu\nif ! command -v owut >/dev/null; then opkg update; opkg install owut; fi\n`);
+ let omitted=[],approved=false;
+ for(let attempt=0;attempt<2;attempt++){
+  const removal=omitted.length?' --remove '+omitted.join(','):'';
+  try{
+   for(let retry=0;;retry++){
+    try{console.log(await transport.exec('sh',checkedScript(`run_checked owut check --verbose --version-to ${target}${removal}`),300000));break;}
+    catch(error){
+     // Retry only read-only checks and only recognized transient transport failures.
+     if(retry>=2||!/Failed to connect|Response status \(null\)|uclient error code=2|Connection timed out/i.test(error.message))throw error;
+     console.log(`OpenWrt server connection failed; retrying check (${retry+1}/2) in 5 seconds. No network settings changed.`);await sleep(5000);
+    }
+   }
+  }catch(error){
+   const missing=missingFirmwarePackages(error.message);
+   if(approved||!missing.length)throw error;
+   if(missing.some(name=>!optionalLegacyPackages.has(name)))throw Error(error.message+'\nAutomatic omission stopped: missing packages outside the reviewed legacy VPN list need manual review.');
+   if(!await confirm('The following legacy VPN packages are unavailable in the target firmware:\n'+missing.join(', ')+'\nOmit these packages from the NEW firmware? They are NOT uninstalled now. Passwall2 and features depending on these packages will not be available after upgrade. Configuration backup is already saved. Decline to stop without flashing.'))throw Error('Firmware upgrade cancelled; no packages uninstalled and no flash started.');
+   omitted=missing;approved=true;continue;
+  }
+  console.log(await transport.exec('sh',checkedScript(`run_checked owut download --version-to ${target}${removal} --image /tmp/gale-firmware.bin
+run_checked owut verify --image /tmp/gale-firmware.bin
+run_checked sysupgrade -T /tmp/gale-firmware.bin`),1800000));
+  return;
+ }
+ throw Error('Firmware preparation did not pass; no flash started.');
+}
+
 export function firmwareStatus(board){
  const r=board.release||{},v=r.version||'unknown';
  if(r.distribution!=='OpenWrt')throw Error(`Unsupported firmware: ${r.distribution||'unknown'} ${v}. Official OpenWrt is required.`);
@@ -49,24 +100,7 @@ base64 /tmp/gale-pre-upgrade.tar.gz
  if(data.length<2||data[0]!==31||data[1]!==139)throw Error('Invalid configuration backup; upgrade stopped.');
  if(saveBackup)await saveBackup(data);else{mkdirSync('.private',{recursive:true});const path=resolve('.private',`openwrt-backup-${Date.now()}.tar.gz`);writeFileSync(path,data,{mode:0o600,flag:'wx'});console.log('Configuration backup: '+path);}
  console.log('Preparing and validating firmware with owut; this can take several minutes.');
- console.log(await transport.exec('sh',`set -eu
-if ! command -v owut >/dev/null; then opkg update; opkg install owut; fi
-umask 077
-log=$(mktemp /tmp/gale-upgrade-check.XXXXXX)
-trap 'rm -f "$log"' EXIT
-run_checked() {
- if "$@" >"$log" 2>&1; then cat "$log"; else
-  status=$?
-  echo 'Firmware preparation stopped. No flash was started. Diagnostic output:' >&2
-  cat "$log" >&2
-  exit "$status"
- fi
-}
-run_checked owut check --verbose --version-to ${target}
-run_checked owut download --version-to ${target} --image /tmp/gale-firmware.bin
-run_checked owut verify --image /tmp/gale-firmware.bin
-run_checked sysupgrade -T /tmp/gale-firmware.bin
-`,1800000));
+ await prepareFirmware({transport,target,confirm,sleep});
  // Only the validated image is flashed. Never use -F, -n or --force.
  await transport.exec('sh',`set -eu
 command -v nohup >/dev/null

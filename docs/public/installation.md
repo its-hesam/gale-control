@@ -194,3 +194,9 @@ Use Ethernet and keep router power connected. Firmware flashing interrupts Wi-Fi
 Snapshots, third-party forks, releases before 24.10 and newer unsupported branches require the device-specific manual upgrade procedure. Automatic downgrade is not provided. The migration flow has automated failure-path tests; a real hardware flash has not been performed as part of validating this installer change.
 
 References: [official Attended Sysupgrade](https://sysupgrade.openwrt.org/), [owut source and documentation](https://github.com/efahl/owut).
+
+### Legacy VPN packages and intermittent connectivity (0.3.5+)
+
+The installer automatically runs verbose owut checks. Recognized transient connection failures during these read-only checks receive at most two retries, five seconds apart. DNS, IPv6 and certificate validation settings are not changed. Persistent failures retain the full diagnostic output.
+
+If owut reports a complete list of packages missing in the target version, the installer can offer to omit these reviewed legacy packages from the new firmware: chinadns-ng, dns2socks, geoview, ipt2socks, luci-app-passwall2 and tcping. This requires a separate explicit **Y** after showing the exact detected list and consequences. They are not uninstalled from the running router. The same approved list is passed to both the repeated check and the image download/build. A failed recheck stops before any flash. Missing packages outside this list require manual review; essential packages are never automatically discarded. No forced upgrades are used.
