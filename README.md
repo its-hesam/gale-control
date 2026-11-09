@@ -3,26 +3,38 @@
 
 # 🌊 Gale Control
 
-### A modern OpenWrt VPN workspace
+### Your network. Your VPNs. One clear control center.
 
-**A lightweight dashboard. Real connection checks. Recoverable changes.**
+**A modern, router-friendly VPN workspace for OpenWrt — with real connection tests, smart routing, and recoverable changes.**
 
 ![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12-00B5E2?style=flat-square)
 ![Preact](https://img.shields.io/badge/UI-Preact%20%2B%20TypeScript-7865FF?style=flat-square)
 ![ARMv7](https://img.shields.io/badge/Tested-ARMv7-36B882?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
 
-[🚀 Install](#-easy-guided-install) · [✨ Features](#-why-gale) · [🔌 Protocols](#-protocols--verification) · [📚 Full guide](docs/public/installation.md) · [فارسی](README.fa.md)
+[🚀 Get started](#-easy-guided-install) · [✨ Features](#-why-gale) · [🆚 vs PassWall2](#-gale-vs-passwall2) · [🔌 Protocols](#-protocols--verification) · [📚 Docs](docs/public/installation.md) · [فارسی](README.fa.md)
 
 </div>
 
 ![VPN connection manager](docs/assets/connection-manager.jpg)
 
-
 > **Early community release:** tested on Google WiFi ARMv7 / OpenWrt 25.12.2.
 > The current installer requires `arm_cortex-a7_neon-vfpv4`, fw4/nftables,
 > `br-lan` and LAN `192.168.10.1/24`. Other layouts/architectures are not yet
 > supported by the guided installer. It never changes your LAN to force a match.
+
+### One dashboard for the essentials
+
+| 🔌 Connect | 🧭 Route | 📈 Verify | 🛟 Recover |
+|:--|:--|:--|:--|
+| Import a profile or subscription and connect deliberately | Choose a server, enable failover, or set device policies | See real status, HTTPS test results, traffic counters and logs | Stage updates, preview backups and revert supported changes |
+
+**Designed around a simple workflow:** **Import → Validate → Test → Connect → Monitor**.
+No simulated green lights, and no VPN routing changes just from installing Gale.
+
+**Why try Gale?** It brings the everyday VPN tasks into an app-style workspace — including a responsive mobile interface — while leaving LuCI and SSH in place for standard router administration.
+
+> **New here?** Run the [read-only compatibility check](#-easy-guided-install) before installing. Gale's guided installer currently targets one documented Google WiFi / OpenWrt setup, not every OpenWrt device.
 
 ## 🧭 Provider and testing workspaces
 
@@ -150,24 +162,37 @@ secondary. These results do not prove that every peer/provider/option works.
 | Forwarding guard | Block direct client forwarding while protected VPN is unavailable |
 | Monitoring | Bounded RAM history, live events and redacted diagnostics |
 
-## 🆚 Gale and PassWall
+## 🆚 Gale vs PassWall2
 
-Gale is an alternative workflow, not a claim that PassWall is slow or lacks features.
-[PassWall](https://github.com/Openwrt-Passwall/openwrt-passwall) and
-[PassWall2](https://github.com/Openwrt-Passwall/openwrt-passwall2) are established
-LuCI proxy applications with their own package ecosystem.
+**Both manage OpenWrt proxy/VPN traffic. The difference is the workflow.**
+[PassWall2](https://github.com/Openwrt-Passwall/openwrt-passwall2) is an established LuCI-based proxy manager with broad engine and OpenWrt package coverage. Gale is a younger, focused alternative built around an independent dashboard, observable connection state and explicit recovery steps.
 
-| Consideration | Gale | PassWall / PassWall2 |
-|---|---|---|
-| Interface | Standalone app-style Preact workspace, mobile dock, dark/light themes | Integrated LuCI application |
-| Getting started | Guided source installer with strict preflight for the documented setup | Upstream packages / OpenWrt feeds; PassWall2 documents `.ipk` and `.apk` packages |
-| Core engines | Managed Xray and sing-box, version-specific adapters | Upstream package ecosystem includes multiple proxy engines |
-| Scope today | Small explicitly documented hardware/LAN validation scope | Broader established OpenWrt packaging ecosystem |
-| Gale's emphasis | Measured UI state, clear test scope, versioned code recovery and full Gale restore workflow | Consult upstream documentation for its current feature/recovery behavior |
+| What matters to you | 🌊 Gale Control | 🧩 PassWall2 |
+|:--|:--|:--|
+| **Everyday interface** | Standalone app-style dashboard with dark/light themes | Integrated LuCI application |
+| **Phone experience** | Responsive server cards and floating glass bottom navigation | LuCI-based interface; mobile experience depends on LuCI/theme |
+| **How you start** | Guided source installer with strict platform/LAN preflight | OpenWrt `.ipk` / `.apk` packages and feeds |
+| **Device coverage** | **Currently limited** to the documented Google WiFi ARMv7 setup | Established wider OpenWrt packaging ecosystem; verify device dependencies |
+| **Proxy engines** | Version-managed Xray and sing-box adapters | Xray, sing-box and other optional engines/packages |
+| **Subscriptions** | Scheduled refresh, import, normalization, deduplication and validation | Subscription URL import and node management |
+| **Node checks** | Measured HTTPS-latency selection and bounded connection tests | Built-in node latency/connectivity testing |
+| **Automatic failover** | Confirmed-failure switching with a hold period | Automatic failover is supported |
+| **Load balancing** | Two-member connection distribution tested; **not bonding** | Multi-node traffic load balancing is supported |
+| **Routing controls** | Device IP exceptions, all-LAN modes, and documented independent Wi-Fi band controls | Per-device, domain/IP and geo-based routing controls |
+| **Monitoring focus** | Live router counters, connection history and redacted diagnostics; unknown values stay unknown | Proxy status/logs and LuCI management tools |
+| **Application updates** | Versioned app release deployment and rollback workflow; core staging/rollback | Package/feed-based updates; behavior varies by installed components |
+| **Recovery approach** | Gale backup preview, signed (unencrypted) backups, client confirmation and app rollback | OpenWrt/LuCI and package-management recovery tools; consult upstream guidance |
+| **Best fit** | A visual, focused control center on a **confirmed compatible** setup | A mature, LuCI-integrated proxy solution across more installation scenarios |
 
-**Choose Gale for its focused dashboard experience and explicit, inspectable recovery
-workflows.** No comparative speed, memory, reliability or security superiority is
-claimed: there has been no controlled head-to-head benchmark.
+### Which one should you choose?
+
+**Choose Gale if** you want a visually focused dashboard, a phone-friendly daily workflow, explicit measurement states, and a documented Gale recovery path — **and** your router matches the currently supported installer requirements.
+
+**Choose PassWall2 if** you need a more established LuCI integration, broader package/device availability, or an existing deployment that already works well for you.
+
+> **Fair comparison:** Gale has not been benchmarked head-to-head against PassWall2. This table does **not** claim superior speed, RAM use, security, connection stability or universal protocol support. PassWall2's capabilities are based on its [official project README](https://github.com/Openwrt-Passwall/openwrt-passwall2); Gale's descriptions reflect the bounded implementation/testing evidence documented below.
+
+> **Switching from PassWall2?** Back up your existing configuration first. Keep only **one transparent routing manager active** at a time. Gale does not uninstall PassWall2 or automatically assume control of its rules.
 
 ## 🧪 What has actually been tested?
 
